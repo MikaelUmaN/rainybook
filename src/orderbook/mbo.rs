@@ -3,7 +3,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use polars::prelude::*;
 use strum::Display;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::{OrderBook, OrderBookError, Side};
 
