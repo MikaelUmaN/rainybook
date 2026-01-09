@@ -1,7 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# In this project: delete build files not touched in the last 30 days.
+# Delete build files not touched in the last 30 days.
 cargo sweep --time 30
 
-# Clean under $CARGO_HOME (e.g. ~/.cargo).
+# Clean under $CARGO_HOME (~/.cargo).
 cargo cache --autoclean
+
+# Optional: recompress git repos (slower, but can reclaim space)
+# cargo cache --gc

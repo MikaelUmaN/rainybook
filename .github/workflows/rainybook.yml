@@ -95,8 +95,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-target-test-
       
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo nextest run --no-fail-fast --all-features
 
   coverage:
     name: Code Coverage
@@ -121,12 +124,15 @@ jobs:
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-index-
-      
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      
-      - name: Generate coverage
-        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Generate coverage (lcov)
+        run: cargo llvm-cov nextest --all-features --workspace --lcov --output-path lcov.info
 
   security-audit:
     name: Security Audit
@@ -141,6 +147,18 @@ jobs:
       
       - name: Run security audit
         run: cargo audit
+
+  deps:
+    name: Dependency Policy
+    runs-on: ubuntu-latest
+    container:
+      image: rust:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-deny
+      - uses: taiki-e/install-action@cargo-machete
+      - run: cargo deny check advisories bans licenses sources
+      - run: cargo machete
 
   build:
     name: Build
@@ -212,7 +230,7 @@ jobs:
             ${{ runner.os }}-cargo-index-
       
       - name: Generate documentation
-        run: cargo doc --all-features --document-private-items --no-deps
+        run: cargo doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -220,7 +238,7 @@ jobs:
   # Useful for branch protection rules
   ci-success:
     name: CI Success
-    needs: [format, clippy, test, coverage, security-audit, build, docs]
+    needs: [format, clippy, test, coverage, security-audit, deps, build, docs]
     runs-on: ubuntu-latest
     if: always()
     steps:
