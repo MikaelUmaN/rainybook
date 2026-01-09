@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 use tracing::warn;
 
@@ -13,22 +14,27 @@ pub enum OrderBookError {
     FillQuantityExceedsOrderSize(u64, u64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(i8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
 pub enum Side {
-    Bid,
-    Ask,
+    Bid = 1,
+    Ask = 2,
 }
 
 /// Price level tracking individual orders (Market-By-Order).
 /// Maintains aggregate quantity and individual order quantities.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct OrderLevel {
+    pub price: i64,
     orders: HashMap<u64, u64>,
 }
 
 impl OrderLevel {
-    pub fn new() -> Self {
-        Self { orders: HashMap::new() }
+    pub fn new(price: i64) -> Self {
+        Self {
+            price,
+            orders: HashMap::new(),
+        }
     }
 
     /// Iterates over orders and sums size.
@@ -81,6 +87,7 @@ impl OrderLevel {
         self.orders.is_empty()
     }
 
+    /// Returns the number of orders at this price level.
     pub fn order_count(&self) -> usize {
         self.orders.len()
     }
@@ -90,11 +97,11 @@ impl OrderLevel {
 /// Prices are integers (cents, ticks, etc.)
 #[derive(Debug, Default)]
 pub struct OrderBook {
-    bids: BTreeMap<i64, OrderLevel>,
-    asks: BTreeMap<i64, OrderLevel>,
+    pub bids: BTreeMap<i64, OrderLevel>,
+    pub asks: BTreeMap<i64, OrderLevel>,
 
     /// Mapping from order_id -> (side, price)
-    order_index: HashMap<u64, (Side, i64)>,
+    pub order_index: HashMap<u64, (Side, i64)>,
 }
 
 impl OrderBook {
@@ -132,18 +139,18 @@ impl OrderBook {
 
         levels
             .entry(price)
-            .or_default()
+            .or_insert_with(|| OrderLevel::new(price))
             .add_order(order_id, quantity);
 
         self.order_index.insert(order_id, (side, price));
     }
 
-    /// Removes an order from the order book. If it is not found,
-    /// no operation is performed.
-    pub fn remove_order(&mut self, order_id: u64) {
+    /// Removes an order from the order book. If it is not found, no operation is performed.
+    /// Returns Some(order_id) if removed, None if not found.
+    pub fn remove_order(&mut self, order_id: u64) -> Option<u64> {
         let Some((side, price)) = self.order_index.remove(&order_id) else {
             warn!("Order {} not found in index, ignoring removal", order_id);
-            return;
+            return None;
         };
 
         let levels = match side {
@@ -158,8 +165,11 @@ impl OrderBook {
             if level.is_empty() {
                 levels.remove(&price);
             }
+
+            Some(order_id)
         } else {
             warn!("Price level {} not found for order {}", price, order_id);
+            None
         }
     }
 
@@ -493,7 +503,10 @@ mod tests {
         // Try to fill order that doesn't exist
         let result = book.fill_order(999, 50);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), OrderBookError::OrderNotFound(999)));
+        assert!(matches!(
+            result.unwrap_err(),
+            OrderBookError::OrderNotFound(999)
+        ));
     }
 
     #[test]
