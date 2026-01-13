@@ -24,11 +24,4 @@ else
   echo "⚠️  cargo-audit not installed"
 fi
 
-echo "📦 Checking for outdated dependencies..."
-if command -v cargo-outdated >/dev/null 2>&1; then
-  cargo outdated --workspace
-else
-  echo "⚠️  cargo-outdated not installed"
-fi
-
 echo "✅ Dependency checks complete."

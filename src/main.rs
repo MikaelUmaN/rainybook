@@ -36,7 +36,7 @@ struct Cli {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("Hello world!");
+    tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
     info!("Using data file: {}", cli.data_path.display());
