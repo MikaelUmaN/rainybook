@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
       
@@ -30,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
       
@@ -39,7 +43,7 @@ jobs:
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: ${{ env.CARGO_HOME }}/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
@@ -47,7 +51,7 @@ jobs:
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/git
+          path: ${{ env.CARGO_HOME }}/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-index-
@@ -68,13 +72,15 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
       
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: ${{ env.CARGO_HOME }}/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
@@ -82,7 +88,7 @@ jobs:
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/git
+          path: ${{ env.CARGO_HOME }}/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-index-
@@ -95,44 +101,68 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-target-test-
       
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo nextest run --no-fail-fast --all-features
 
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: ${{ env.CARGO_HOME }}/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
-      
-      - name: Cache cargo index
+
+      - name: Cache cargo git
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          path: ${{ env.CARGO_HOME }}/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-index-
-      
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-coverage-
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      
-      - name: Generate coverage
-        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Generate coverage (lcov)
+        run: cargo llvm-cov nextest --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info
 
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
       
@@ -142,11 +172,27 @@ jobs:
       - name: Run security audit
         run: cargo audit
 
+  deps:
+    name: Dependency Policy
+    runs-on: ubuntu-latest
+    container:
+      image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-deny
+      - uses: taiki-e/install-action@cargo-machete
+      - run: cargo deny check advisories bans licenses sources
+      - run: cargo machete
+
   build:
     name: Build
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     strategy:
       matrix:
         target:
@@ -158,7 +204,7 @@ jobs:
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: ${{ env.CARGO_HOME }}/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
@@ -166,7 +212,7 @@ jobs:
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/git
+          path: ${{ env.CARGO_HOME }}/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-index-
@@ -192,13 +238,15 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:latest
+    env:
+      CARGO_HOME: /usr/local/cargo
     steps:
       - uses: actions/checkout@v4
       
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: ${{ env.CARGO_HOME }}/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
@@ -206,13 +254,13 @@ jobs:
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/git
+          path: ${{ env.CARGO_HOME }}/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-index-
       
       - name: Generate documentation
-        run: cargo doc --all-features --document-private-items --no-deps
+        run: cargo doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -220,7 +268,7 @@ jobs:
   # Useful for branch protection rules
   ci-success:
     name: CI Success
-    needs: [format, clippy, test, coverage, security-audit, build, docs]
+    needs: [format, clippy, test, coverage, security-audit, deps, build, docs]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -244,6 +292,18 @@ jobs:
           fi
           if [[ "${{ needs.docs.result }}" != "success" ]]; then
             echo "Documentation generation failed"
+            exit 1
+          fi
+          if [[ "${{ needs.coverage.result }}" != "success" ]]; then
+            echo "Coverage generation failed"
+            exit 1
+          fi
+          if [[ "${{ needs.security-audit.result }}" != "success" ]]; then
+            echo "Security audit failed"
+            exit 1
+          fi
+          if [[ "${{ needs.deps.result }}" != "success" ]]; then
+            echo "Dependency policy check failed"
             exit 1
           fi
           echo "✅ All required checks passed!"
