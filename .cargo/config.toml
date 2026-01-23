@@ -1,0 +1,3 @@
+[build]
+jobs = 4                    # Limit jobs to 4 to not saturate all cpus
+target-dir = "../target"    # Force the same shared target directory for builds (rust-analyzer)

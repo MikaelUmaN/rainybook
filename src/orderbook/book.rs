@@ -21,12 +21,21 @@ pub enum Side {
     Ask = 2,
 }
 
+/// A single order in the order book.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Order {
+    pub order_id: u64,
+    pub side: Side,
+    pub price: i64,
+    pub size: u64,
+}
+
 /// Price level tracking individual orders (Market-By-Order).
 /// Maintains aggregate quantity and individual order quantities.
 #[derive(Debug)]
 pub struct OrderLevel {
     pub price: i64,
-    orders: HashMap<u64, u64>,
+    orders: HashMap<u64, Order>,
 }
 
 impl OrderLevel {
@@ -39,48 +48,52 @@ impl OrderLevel {
 
     /// Iterates over orders and sums size.
     pub fn total_qty(&self) -> u64 {
-        self.orders.values().sum()
+        self.orders.values().map(|o| o.size).sum()
     }
 
     /// Add order (idempotent - overwrites if exists).
-    pub fn add_order(&mut self, order_id: u64, quantity: u64) {
-        match self.orders.entry(order_id) {
+    pub fn add_order(&mut self, order: Order) {
+        match self.orders.entry(order.order_id) {
             Entry::Vacant(e) => {
-                e.insert(quantity);
+                e.insert(order);
             }
             Entry::Occupied(mut e) => {
                 warn!(
-                    "Order {} already exists, overwriting quantity {} -> {}",
-                    order_id,
-                    e.get(),
-                    quantity
+                    "Order {} already exists, overwriting size {} -> {}",
+                    order.order_id,
+                    e.get().size,
+                    order.size
                 );
-                e.insert(quantity);
+                e.insert(order);
             }
         }
     }
 
     /// Remove order entirely (idempotent - no-op if not found).
-    pub fn remove_order(&mut self, order_id: u64) {
+    pub fn remove_order(&mut self, order_id: u64) -> Option<Order> {
         match self.orders.entry(order_id) {
             Entry::Vacant(_) => {
                 warn!("Order {} not found in level, ignoring removal", order_id);
+                None
             }
-            Entry::Occupied(e) => {
-                e.remove();
+            Entry::Occupied(e) => Some(e.remove()),
+        }
+    }
+
+    /// Modify order size (replace old with new).
+    pub fn modify_order(&mut self, order_id: u64, new_size: u64) -> Result<(), OrderBookError> {
+        match self.orders.entry(order_id) {
+            Entry::Vacant(_) => Err(OrderBookError::OrderNotFound(order_id)),
+            Entry::Occupied(mut e) => {
+                e.get_mut().size = new_size;
+                Ok(())
             }
         }
     }
 
-    /// Modify order quantity (replace old with new).
-    pub fn modify_order(&mut self, order_id: u64, new_quantity: u64) -> Result<(), OrderBookError> {
-        match self.orders.entry(order_id) {
-            Entry::Vacant(_) => Err(OrderBookError::OrderNotFound(order_id)),
-            Entry::Occupied(mut e) => {
-                e.insert(new_quantity);
-                Ok(())
-            }
-        }
+    /// Gets an order by id.
+    pub fn get_order(&self, order_id: u64) -> Option<&Order> {
+        self.orders.get(&order_id)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -100,8 +113,9 @@ pub struct OrderBook {
     pub bids: BTreeMap<i64, OrderLevel>,
     pub asks: BTreeMap<i64, OrderLevel>,
 
-    /// Mapping from order_id -> (side, price)
-    pub order_index: HashMap<u64, (Side, i64)>,
+    /// Mapping from order_id -> price for fast order lookup.
+    /// Side is stored in the Order itself.
+    order_index: HashMap<u64, i64>,
 }
 
 impl OrderBook {
@@ -109,124 +123,147 @@ impl OrderBook {
         Self::default()
     }
 
+    /// Gets the side of the book (bids or asks) for the given side.
+    fn levels_mut(&mut self, side: Side) -> &mut BTreeMap<i64, OrderLevel> {
+        match side {
+            Side::Bid => &mut self.bids,
+            Side::Ask => &mut self.asks,
+        }
+    }
+
     /// Adds an order to the orderbook. If the order id already exists, the old order is replaced,
-    /// possibly with changed price and quantity.
-    pub fn add_order(&mut self, side: Side, price: i64, order_id: u64, quantity: u64) {
+    /// possibly with changed price and size.
+    pub fn add_order(&mut self, order: Order) {
         // If order exists, remove it from old location first (handles price changes)
-        if let Some((old_side, old_price)) = self.order_index.get(&order_id) {
-            warn!(
-                "Order {} already exists at {:?} price {}, moving to {:?} price {}",
-                order_id, old_side, old_price, side, price
-            );
+        if let Some(&old_price) = self.order_index.get(&order.order_id) {
+            // Look up the old order to get its side
+            let old_side = self
+                .bids
+                .get(&old_price)
+                .and_then(|level| level.get_order(order.order_id))
+                .map(|o| o.side)
+                .or_else(|| {
+                    self.asks
+                        .get(&old_price)
+                        .and_then(|level| level.get_order(order.order_id))
+                        .map(|o| o.side)
+                });
 
-            let old_levels = match old_side {
-                Side::Bid => &mut self.bids,
-                Side::Ask => &mut self.asks,
-            };
+            if let Some(old_side) = old_side {
+                warn!(
+                    "Order {} already exists at {:?} price {}, moving to {:?} price {}",
+                    order.order_id, old_side, old_price, order.side, order.price
+                );
 
-            if let Some(level) = old_levels.get_mut(old_price) {
-                level.remove_order(order_id);
-                if level.is_empty() {
-                    old_levels.remove(old_price);
+                let old_levels = self.levels_mut(old_side);
+                if let Some(level) = old_levels.get_mut(&old_price) {
+                    level.remove_order(order.order_id);
+                    if level.is_empty() {
+                        old_levels.remove(&old_price);
+                    }
                 }
             }
         }
 
-        let levels = match side {
-            Side::Bid => &mut self.bids,
-            Side::Ask => &mut self.asks,
-        };
+        let price = order.price;
+        let order_id = order.order_id;
+        let levels = self.levels_mut(order.side);
 
         levels
             .entry(price)
             .or_insert_with(|| OrderLevel::new(price))
-            .add_order(order_id, quantity);
+            .add_order(order);
 
-        self.order_index.insert(order_id, (side, price));
+        self.order_index.insert(order_id, price);
     }
 
     /// Removes an order from the order book. If it is not found, no operation is performed.
-    /// Returns Some(order_id) if removed, None if not found.
-    pub fn remove_order(&mut self, order_id: u64) -> Option<u64> {
-        let Some((side, price)) = self.order_index.remove(&order_id) else {
+    /// Returns the removed Order if found, None otherwise.
+    pub fn remove_order(&mut self, order_id: u64) -> Option<Order> {
+        let Some(price) = self.order_index.remove(&order_id) else {
             warn!("Order {} not found in index, ignoring removal", order_id);
             return None;
         };
 
-        let levels = match side {
-            Side::Bid => &mut self.bids,
-            Side::Ask => &mut self.asks,
-        };
+        // Try bids first, then asks
+        let removed = self
+            .bids
+            .get_mut(&price)
+            .and_then(|level| level.remove_order(order_id))
+            .or_else(|| {
+                self.asks
+                    .get_mut(&price)
+                    .and_then(|level| level.remove_order(order_id))
+            });
 
-        if let Some(level) = levels.get_mut(&price) {
-            level.remove_order(order_id);
-
-            // Remove price level if empty
-            if level.is_empty() {
+        // Clean up empty levels
+        if let Some(ref order) = removed {
+            let levels = self.levels_mut(order.side);
+            if levels.get(&price).is_some_and(|l| l.is_empty()) {
                 levels.remove(&price);
             }
-
-            Some(order_id)
         } else {
             warn!("Price level {} not found for order {}", price, order_id);
-            None
         }
+
+        removed
     }
 
-    pub fn modify_order(&mut self, order_id: u64, new_quantity: u64) -> Result<(), OrderBookError> {
-        let (side, price) = self
+    /// Gets an order by id.
+    pub fn get_order(&self, order_id: u64) -> Option<&Order> {
+        let price = self.order_index.get(&order_id)?;
+        self.bids
+            .get(price)
+            .and_then(|level| level.get_order(order_id))
+            .or_else(|| {
+                self.asks
+                    .get(price)
+                    .and_then(|level| level.get_order(order_id))
+            })
+    }
+
+    pub fn modify_order(&mut self, order_id: u64, new_size: u64) -> Result<(), OrderBookError> {
+        let &price = self
             .order_index
             .get(&order_id)
             .ok_or(OrderBookError::OrderNotFound(order_id))?;
 
-        let levels = match side {
-            Side::Bid => &mut self.bids,
-            Side::Ask => &mut self.asks,
-        };
-
-        if let Some(level) = levels.get_mut(price) {
-            level.modify_order(order_id, new_quantity)
-        } else {
-            Err(OrderBookError::OrderNotFound(order_id))
+        // Try bids first, then asks
+        if let Some(level) = self.bids.get_mut(&price)
+            && level.get_order(order_id).is_some()
+        {
+            return level.modify_order(order_id, new_size);
         }
+        if let Some(level) = self.asks.get_mut(&price)
+            && level.get_order(order_id).is_some()
+        {
+            return level.modify_order(order_id, new_size);
+        }
+        Err(OrderBookError::OrderNotFound(order_id))
     }
 
     /// Fills part or all of an order. If the fill quantity equals
-    /// the order quantity, the order is removed.
+    /// the order size, the order is removed.
     pub fn fill_order(&mut self, order_id: u64, fill_quantity: u64) -> Result<(), OrderBookError> {
-        let (side, price) = self
-            .order_index
-            .get(&order_id)
-            .ok_or(OrderBookError::OrderNotFound(order_id))?;
+        let current_size = self
+            .get_order(order_id)
+            .ok_or(OrderBookError::OrderNotFound(order_id))?
+            .size;
 
-        let levels = match side {
-            Side::Bid => &mut self.bids,
-            Side::Ask => &mut self.asks,
-        };
-
-        if let Some(level) = levels.get_mut(price) {
-            let current_qty = level
-                .orders
-                .get(&order_id)
-                .ok_or(OrderBookError::OrderNotFound(order_id))?;
-
-            if *current_qty < fill_quantity {
-                return Err(OrderBookError::FillQuantityExceedsOrderSize(
-                    fill_quantity,
-                    *current_qty,
-                ));
-            }
-
-            let new_quantity = *current_qty - fill_quantity;
-            if new_quantity == 0 {
-                self.remove_order(order_id);
-            } else {
-                level.modify_order(order_id, new_quantity)?;
-            }
-            Ok(())
-        } else {
-            Err(OrderBookError::OrderNotFound(order_id))
+        if current_size < fill_quantity {
+            return Err(OrderBookError::FillQuantityExceedsOrderSize(
+                fill_quantity,
+                current_size,
+            ));
         }
+
+        let new_size = current_size - fill_quantity;
+        if new_size == 0 {
+            self.remove_order(order_id);
+        } else {
+            self.modify_order(order_id, new_size)?;
+        }
+        Ok(())
     }
 
     pub fn best_bid(&self) -> Option<(i64, u64)> {
@@ -265,11 +302,21 @@ impl OrderBook {
 mod tests {
     use super::*;
 
+    /// Helper to create an Order for tests.
+    fn order(order_id: u64, side: Side, price: i64, size: u64) -> Order {
+        Order {
+            order_id,
+            side,
+            price,
+            size,
+        }
+    }
+
     #[test]
     fn test_add_and_remove_order() {
         let mut book = OrderBook::new();
 
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
         assert_eq!(book.best_bid(), Some((10050, 100)));
 
         book.remove_order(123);
@@ -280,7 +327,7 @@ mod tests {
     fn test_add_and_modify_order() {
         let mut book = OrderBook::new();
 
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
         assert_eq!(book.best_bid(), Some((10050, 100)));
 
         book.modify_order(123, 150).unwrap();
@@ -291,8 +338,8 @@ mod tests {
     fn test_remove_one_of_two_orders() {
         let mut book = OrderBook::new();
 
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Bid, 10051, 124, 50);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Bid, 10051, 50));
 
         book.remove_order(123);
 
@@ -305,8 +352,8 @@ mod tests {
     fn test_modify_one_of_two_orders() {
         let mut book = OrderBook::new();
 
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Bid, 10051, 124, 50);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Bid, 10051, 50));
 
         book.modify_order(123, 200).unwrap();
 
@@ -330,11 +377,11 @@ mod tests {
     fn test_add_duplicate_order_id_overwrites() {
         let mut book = OrderBook::new();
 
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
         assert_eq!(book.best_bid(), Some((10050, 100)));
 
         // Adding same order_id at different price should move it
-        book.add_order(Side::Bid, 10051, 123, 150);
+        book.add_order(order(123, Side::Bid, 10051, 150));
         assert_eq!(book.best_bid(), Some((10051, 150)));
 
         // Old price level should be empty
@@ -346,8 +393,8 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add two orders at same price
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Bid, 10050, 124, 50);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Bid, 10050, 50));
 
         assert_eq!(book.best_bid(), Some((10050, 150))); // Total: 100 + 50
 
@@ -365,10 +412,10 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add orders at different prices
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Bid, 10048, 124, 50);
-        book.add_order(Side::Ask, 10052, 125, 75);
-        book.add_order(Side::Ask, 10054, 126, 80);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Bid, 10048, 50));
+        book.add_order(order(125, Side::Ask, 10052, 75));
+        book.add_order(order(126, Side::Ask, 10054, 80));
 
         // Best bid should be highest price
         assert_eq!(book.best_bid(), Some((10050, 100)));
@@ -389,9 +436,9 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add three orders at same price
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Bid, 10050, 124, 50);
-        book.add_order(Side::Bid, 10050, 125, 75);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Bid, 10050, 50));
+        book.add_order(order(125, Side::Bid, 10050, 75));
 
         // Total quantity should be sum of all orders
         assert_eq!(book.best_bid(), Some((10050, 225)));
@@ -410,8 +457,8 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add orders to both sides
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Ask, 10052, 124, 50);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Ask, 10052, 50));
 
         // Modify bid shouldn't affect ask
         book.modify_order(123, 200).unwrap();
@@ -433,7 +480,7 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add order with 100 units
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
         assert_eq!(book.best_bid(), Some((10050, 100)));
 
         // Fill 40 units
@@ -451,7 +498,7 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add order with 100 units
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
         assert_eq!(book.best_bid(), Some((10050, 100)));
 
         // Fill entire order
@@ -466,8 +513,8 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add two orders at same price
-        book.add_order(Side::Bid, 10050, 123, 100);
-        book.add_order(Side::Bid, 10050, 124, 50);
+        book.add_order(order(123, Side::Bid, 10050, 100));
+        book.add_order(order(124, Side::Bid, 10050, 50));
         assert_eq!(book.best_bid(), Some((10050, 150)));
 
         // Fill first order completely
@@ -482,7 +529,7 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add order with 100 units
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
 
         // Try to fill 150 units (more than available)
         let result = book.fill_order(123, 150);
@@ -514,7 +561,7 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add order with 100 units
-        book.add_order(Side::Ask, 10052, 125, 100);
+        book.add_order(order(125, Side::Ask, 10052, 100));
         assert_eq!(book.best_ask(), Some((10052, 100)));
 
         // Fill in multiple steps
@@ -537,7 +584,7 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add order
-        book.add_order(Side::Bid, 10050, 123, 100);
+        book.add_order(order(123, Side::Bid, 10050, 100));
 
         // Fill zero units (edge case - should succeed but do nothing)
         book.fill_order(123, 0).unwrap();

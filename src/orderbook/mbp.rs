@@ -86,20 +86,30 @@ impl From<&OrderBook> for MarketByPrice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orderbook::Side;
+    use crate::orderbook::{Order, Side};
+
+    /// Helper to create an Order for tests.
+    fn order(order_id: u64, side: Side, price: i64, size: u64) -> Order {
+        Order {
+            order_id,
+            side,
+            price,
+            size,
+        }
+    }
 
     #[test]
     fn test_order_level_summary_aggregation() {
         let mut book = OrderBook::new();
 
         // Add multiple orders at same bid price
-        book.add_order(Side::Bid, 10000, 1, 100);
-        book.add_order(Side::Bid, 10000, 2, 200);
-        book.add_order(Side::Bid, 10000, 3, 150);
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 10000, 200));
+        book.add_order(order(3, Side::Bid, 10000, 150));
 
         // Add multiple orders at same ask price
-        book.add_order(Side::Ask, 10100, 4, 50);
-        book.add_order(Side::Ask, 10100, 5, 75);
+        book.add_order(order(4, Side::Ask, 10100, 50));
+        book.add_order(order(5, Side::Ask, 10100, 75));
 
         let mbp = MarketByPrice::from(&book);
 
@@ -121,14 +131,14 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Create 3 bid levels
-        book.add_order(Side::Bid, 10000, 1, 100);
-        book.add_order(Side::Bid, 9900, 2, 200);
-        book.add_order(Side::Bid, 9800, 3, 300);
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 9900, 200));
+        book.add_order(order(3, Side::Bid, 9800, 300));
 
         // Create 3 ask levels
-        book.add_order(Side::Ask, 10100, 4, 50);
-        book.add_order(Side::Ask, 10200, 5, 75);
-        book.add_order(Side::Ask, 10300, 6, 100);
+        book.add_order(order(4, Side::Ask, 10100, 50));
+        book.add_order(order(5, Side::Ask, 10200, 75));
+        book.add_order(order(6, Side::Ask, 10300, 100));
 
         let mbp = MarketByPrice::from(&book);
 
@@ -170,9 +180,9 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add orders
-        book.add_order(Side::Bid, 10000, 1, 100);
-        book.add_order(Side::Bid, 10000, 2, 200);
-        book.add_order(Side::Ask, 10100, 3, 150);
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 10000, 200));
+        book.add_order(order(3, Side::Ask, 10100, 150));
 
         // Create MBP before cancellation
         let mbp_before = MarketByPrice::from(&book);
@@ -201,8 +211,8 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add orders
-        book.add_order(Side::Bid, 10000, 1, 100);
-        book.add_order(Side::Ask, 10100, 2, 200);
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Ask, 10100, 200));
 
         let mbp_before = MarketByPrice::from(&book);
         assert_eq!(mbp_before.bids.get(&10000).unwrap().total_quantity, 100);
@@ -229,9 +239,9 @@ mod tests {
         let mut book = OrderBook::new();
 
         // Add orders with multiple orders at same level
-        book.add_order(Side::Bid, 10000, 1, 100);
-        book.add_order(Side::Bid, 10000, 2, 200);
-        book.add_order(Side::Bid, 10000, 3, 150);
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 10000, 200));
+        book.add_order(order(3, Side::Bid, 10000, 150));
 
         let mbp_before = MarketByPrice::from(&book);
         assert_eq!(mbp_before.bids.get(&10000).unwrap().total_quantity, 450);
@@ -259,9 +269,9 @@ mod tests {
     fn test_to_dataframe_conversion() {
         let mut book = OrderBook::new();
 
-        book.add_order(Side::Bid, 10000, 1, 100);
-        book.add_order(Side::Bid, 9900, 2, 200);
-        book.add_order(Side::Ask, 10100, 3, 150);
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 9900, 200));
+        book.add_order(order(3, Side::Ask, 10100, 150));
 
         let mbp = MarketByPrice::from(&book);
         let df = mbp.to_dataframe().expect("Should convert to DataFrame");

@@ -5,7 +5,16 @@ edition = "2024"
 license = "Apache-2.0"
 
 [dependencies]
-polars = { version = ">=0.52,<2", features = ["lazy", "dtype-full", "timezones", "temporal", "parquet", "csv", "performant"] }
+polars = { version = ">=0.52,<2", default-features = false, features = [
+  "lazy",
+  "csv",
+  "parquet",
+  "temporal",
+  "timezones",
+  "dtype-slim",
+  "dtype-i8",
+  "fmt",
+]}
 clap = { version = "4.5.54", features = ["derive"] }
 serde = "1.0.228"
 tracing = "0.1.44"
@@ -31,5 +40,17 @@ debug = false
 # Strip symbols for even smaller release artifacts.
 # Replace "debuginfo" with "symbols" for maximum shrinkage.
 strip = "debuginfo"
-# opt-level = 3
 
+[dev-dependencies]
+criterion = "0.8.1"
+rand = ">=0.9.2,<2"
+rand_chacha = ">=0.9,<2"
+rand_distr = ">=0.5.1,<2"
+
+[[bench]]
+name = "orderbook"
+harness = false
+
+[features]
+polars_perf = ["polars/performant"]
+polars_all_dtypes = ["polars/dtype-full"]
