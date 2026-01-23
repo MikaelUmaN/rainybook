@@ -5,7 +5,7 @@ use strum::Display;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::{OrderBook, OrderBookError, Side};
+use crate::{Order, OrderBook, OrderBookError, Side};
 
 #[derive(Debug, Error, Clone)]
 pub enum MboProcessError {
@@ -58,6 +58,17 @@ impl TryFrom<&MboMsg> for MarketByOrderMessage {
             order_id: msg.order_id,
             size: msg.size,
         })
+    }
+}
+
+impl From<&MarketByOrderMessage> for Order {
+    fn from(msg: &MarketByOrderMessage) -> Self {
+        Self {
+            order_id: msg.order_id,
+            side: msg.side,
+            price: msg.price,
+            size: msg.size.into(),
+        }
     }
 }
 
@@ -115,12 +126,7 @@ impl MboProcessor {
                     "Adding order ID {}: side {:?}, price {}, size {}",
                     message.order_id, message.side, message.price, message.size
                 );
-                self.order_book.add_order(
-                    message.side,
-                    message.price,
-                    message.order_id,
-                    message.size.into(),
-                );
+                self.order_book.add_order(Order::from(message));
             }
             Action::Cancel => {
                 debug!("Cancelling order ID {}", message.order_id);
