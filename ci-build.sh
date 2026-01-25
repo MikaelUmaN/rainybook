@@ -2,6 +2,11 @@
 # Runs all quality checks and builds (CI)
 set -euo pipefail
 
+# cargo-llvm-cov may not reliably respect .cargo/config.toml target-dir with relative paths.
+# Export absolute path to ensure consistent behavior across all environments.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CARGO_TARGET_DIR="${SCRIPT_DIR}/../target"
+
 JOBS="${CARGO_BUILD_JOBS:-4}"
 
 echo "🧹 Checking code formatting..."
