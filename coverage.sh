@@ -3,6 +3,11 @@
 # Local coverage report (matches CI as closely as possible).
 set -euo pipefail
 
+# cargo-llvm-cov may not reliably respect .cargo/config.toml target-dir with relative paths.
+# Export absolute path to ensure consistent behavior across all environments.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CARGO_TARGET_DIR="${SCRIPT_DIR}/../target"
+
 rm -rf coverage
 
 if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
