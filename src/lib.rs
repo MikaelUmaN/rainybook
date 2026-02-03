@@ -1,4 +1,5 @@
 pub mod orderbook;
+pub mod generators;
 
 pub use orderbook::{
     Action, MarketByOrderMessage, MarketByPrice, MboProcessError, MboProcessor, Order, OrderBook,
