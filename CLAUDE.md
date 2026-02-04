@@ -177,12 +177,12 @@ perf stat -d ../target/release/steady_state --operations 1000000
 5. **Optimize**: Make targeted improvements
 6. **Validate**: Compare before/after with perf stat and criterion benchmarks
 
-**See [docs/perf_guide.md](docs/perf_guide.md) for comprehensive profiling documentation.**
+**See [docs/profiling.md](docs/profiling.md) for profiling documentation.**
 
 ### Performance Monitoring
 
 - **Criterion benchmarks** (`cargo bench`) - Precise per-operation timing with statistical analysis
-- **Linux perf/flamegraph** - CPU profiling without overhead (see docs/perf_guide.md)
+- **Linux perf/flamegraph** - CPU profiling without overhead (see docs/profiling.md)
 - **Tracing spans** - Optional operation-level monitoring for debugging (see steady_state.rs for examples)
 
 ### Feature Flags
