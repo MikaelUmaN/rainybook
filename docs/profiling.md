@@ -9,12 +9,12 @@ Run benchmarks to measure operation timing:
 cargo bench
 
 # Run specific benchmark
-cargo bench orderbook/add_order
+cargo bench benchmark_name
 
 # Run with baseline comparison
-cargo bench --bench orderbook -- --save-baseline main
+cargo bench --bench benchmark_suite -- --save-baseline main
 # After changes:
-cargo bench --bench orderbook -- --baseline main
+cargo bench --bench benchmark_suite -- --baseline main
 ```
 
 Criterion outputs:
@@ -33,14 +33,13 @@ cargo perf-build --bin program
 ### Record CPU Profile
 
 ```bash
-perf record -e cpu-clock:u -F 199 -g --call-graph dwarf ../target/perf/steady_state --operations 10000000
+perf record -e cpu-clock:u -F 199 -g --call-graph dwarf ../target/perf/program [args...]
 ```
 
 Options:
-- `-e cpu-clock:u`: Uses user-space CPU clock event; use if on WSL.
+- `-e cpu-clock:u`: Uses user-space CPU clock event; use if on WSL
 - `-F 199`: Sample at 199 Hz
 - `-g --call-graph dwarf`: Capture call stacks using DWARF debug info
-- `--operations`: Number of operations to simulate
 
 ### Generate Flamegraph
 
