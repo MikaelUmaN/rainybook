@@ -1,6 +1,5 @@
 use dbn::MboMsg;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use polars::prelude::*;
 use strum::Display;
 use thiserror::Error;
 use tracing::debug;
@@ -70,36 +69,6 @@ impl From<&MarketByOrderMessage> for Order {
             size: msg.size.into(),
         }
     }
-}
-
-/// Processes DataFrame to `MarketByOrderMessage`s.
-pub fn into_mbo_messages(df: &DataFrame) -> PolarsResult<Vec<MarketByOrderMessage>> {
-    let actions = df.column("action")?.i8()?;
-    let sides = df.column("side")?.i8()?;
-    let prices = df.column("price")?.i64()?;
-    let order_ids = df.column("order_id")?.u64()?;
-    let sizes = df.column("size")?.u32()?;
-
-    let messages = actions
-        .into_iter()
-        .zip(sides)
-        .zip(prices)
-        .zip(order_ids)
-        .zip(sizes)
-        .filter_map(|((((a, s), p), oid), sz)| {
-            let action = Action::try_from(a?).ok()?;
-            let side = Side::try_from(s?).ok()?;
-            Some(MarketByOrderMessage {
-                action,
-                side,
-                price: p?,
-                order_id: oid?,
-                size: sz?,
-            })
-        })
-        .collect();
-
-    Ok(messages)
 }
 
 /// Market-By-Order processor that maintains an in-memory order book,
