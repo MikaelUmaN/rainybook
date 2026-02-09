@@ -173,7 +173,12 @@ mod tests {
 
         // Ensure book never crosses
         if let (Some(max_bid), Some(min_ask)) = (max_bid, min_ask) {
-            assert!(max_bid < min_ask, "Book crossed: max_bid={}, min_ask={}", max_bid, min_ask);
+            assert!(
+                max_bid < min_ask,
+                "Book crossed: max_bid={}, min_ask={}",
+                max_bid,
+                min_ask
+            );
         }
     }
 

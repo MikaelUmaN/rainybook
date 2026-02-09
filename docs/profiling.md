@@ -24,27 +24,12 @@ Criterion outputs:
 
 ## perf + Flamegraph
 
-### Build for Profiling
+Use [`profile.sh`](../profile.sh) to build, profile, and generate flamegraphs:
 
 ```bash
-cargo perf-build --bin program
-```
-
-### Record CPU Profile
-
-```bash
-perf record -e cpu-clock:u -F 199 -g --call-graph dwarf ../target/perf/program [args...]
-```
-
-Options:
-- `-e cpu-clock:u`: Uses user-space CPU clock event; use if on WSL
-- `-F 199`: Sample at 199 Hz
-- `-g --call-graph dwarf`: Capture call stacks using DWARF debug info
-
-### Generate Flamegraph
-
-```bash
-flamegraph --perfdata perf.data -o flamegraph.svg
+./profile.sh --perf --flamegraph    # Profile steady_state + generate flamegraph
+./profile.sh --perf my_binary -f    # Profile specific binary
+./profile.sh --help                 # See all options
 ```
 
 Open `flamegraph.svg` in a browser to visualize.
@@ -105,16 +90,7 @@ WSL2 runs in Hyper-V and lacks hardware performance counter (PMU) support. This 
 
 ### WSL2 Workaround
 
-Use `cpu-clock` software event instead of default hardware events:
-
-```bash
-# If using cargo flamegraph on WSL2
-cargo flamegraph -e cpu-clock --bin program -- [args...]
-
-# If using perf directly on WSL2
-perf record -e cpu-clock -F 199 -g --call-graph dwarf ../target/perf/program [args...]
-flamegraph --perfdata perf.data -o flamegraph.svg
-```
+Use `cpu-clock` software event instead of default hardware events. The `profile.sh` script already uses `cpu-clock:u` for WSL2 compatibility.
 
 ### Recommendation
 

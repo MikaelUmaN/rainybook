@@ -36,10 +36,10 @@ cargo build --features polars_all_dtypes
 
 # Performance profiling
 cargo build --release --bin steady_state
-../target/release/steady_state --operations 10000000
+../target/release/steady_state --duration 30
 
 # Flamegraph generation
-cargo flamegraph --bin steady_state -- --operations 10000000
+cargo flamegraph --bin steady_state -- --duration 30
 ```
 
 ## Architecture
@@ -117,12 +117,12 @@ The `steady_state` binary is designed for CPU profiling with Linux perf and flam
 
 **Basic Usage:**
 ```bash
-# Run simulation
-../target/release/steady_state --operations 10000000 --target-depth 10
+# Run simulation for 30 seconds
+../target/release/steady_state --duration 30 --target-depth 10
 
 # With different operation mix
 ../target/release/steady_state \
-    --operations 10000000 \
+    --duration 60 \
     --prob-add 0.40 \
     --prob-cancel 0.30 \
     --prob-fill 0.25 \
@@ -135,7 +135,7 @@ The `steady_state` binary is designed for CPU profiling with Linux perf and flam
 ```bash
 # Record samples with call graphs
 perf record -F 997 --call-graph dwarf \
-    ../target/release/steady_state --operations 10000000
+    ../target/release/steady_state --duration 30
 
 # View report
 perf report --stdio
@@ -147,10 +147,10 @@ perf report
 **Flamegraph Generation:**
 ```bash
 # One command (easiest)
-cargo flamegraph --bin steady_state -- --operations 10000000
+cargo flamegraph --bin steady_state -- --duration 30
 
 # Manual with FlameGraph scripts
-perf record -F 997 --call-graph dwarf -g ../target/release/steady_state --operations 10000000
+perf record -F 997 --call-graph dwarf -g ../target/release/steady_state --duration 30
 perf script | stackcollapse-perf.pl | flamegraph.pl > flamegraph.svg
 ```
 
@@ -158,14 +158,14 @@ perf script | stackcollapse-perf.pl | flamegraph.pl > flamegraph.svg
 ```bash
 # Cache performance
 perf stat -e cache-references,cache-misses \
-    ../target/release/steady_state --operations 1000000
+    ../target/release/steady_state --duration 10
 
 # Branch prediction
 perf stat -e branches,branch-misses \
-    ../target/release/steady_state --operations 1000000
+    ../target/release/steady_state --duration 10
 
 # Detailed stats
-perf stat -d ../target/release/steady_state --operations 1000000
+perf stat -d ../target/release/steady_state --duration 10
 ```
 
 ### Profiling Workflow

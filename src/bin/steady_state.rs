@@ -1,6 +1,6 @@
 //! Steady-state order book simulator for performance profiling.
 //!
-//! This binary simulates realistic order book activity by maintaining a steady state
+//! This binary simulates order book activity by maintaining a steady state
 //! of approximately N levels of bid/ask depth. It dynamically adjusts operation
 //! probabilities to prevent the book from growing unbounded or collapsing.
 //!
@@ -12,7 +12,6 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::time::Instant;
 use tracing::{error, info};
-use tracing_subscriber;
 
 use rainybook::generators::OrderGenerator;
 use rainybook::orderbook::{Order, OrderBook, Side};
@@ -21,12 +20,12 @@ use rainybook::orderbook::{Order, OrderBook, Side};
 #[command(name = "steady_state")]
 #[command(about = "Steady-state order book simulator for performance profiling")]
 struct Cli {
-    /// Total number of operations to execute
-    #[arg(long, default_value = "1000000000")]
-    operations: u64,
+    /// Duration to run simulation in seconds
+    #[arg(long, default_value = "30")]
+    duration: u64,
 
     /// Target depth per side (number of price levels)
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value = "12")]
     target_depth: usize,
 
     /// Random seed for deterministic execution
@@ -55,8 +54,6 @@ struct Cli {
 }
 
 /// Action probabilities for operation selection.
-///
-/// Fields are private to enforce validation via constructor.
 #[derive(Debug, Clone, Copy)]
 struct ActionProbabilities {
     add: f64,
@@ -220,7 +217,6 @@ fn select_action(
 }
 
 fn main() {
-    // Initialize tracing subscriber for structured logging
     tracing_subscriber::fmt()
         .with_target(false)
         .with_level(true)
@@ -241,11 +237,13 @@ fn main() {
 
     info!("Steady-State Order Book Simulator");
     info!("==================================");
-    info!("Operations:      {}", cli.operations);
+    info!("Duration:        {}s", cli.duration);
     info!("Target depth:    {} levels per side", cli.target_depth);
     info!("Seed:            {}", cli.seed);
-    info!("Probabilities:   add={:.2} cancel={:.2} fill={:.2} modify={:.2}",
-        cli.prob_add, cli.prob_cancel, cli.prob_fill, cli.prob_modify);
+    info!(
+        "Probabilities:   add={:.2} cancel={:.2} fill={:.2} modify={:.2}",
+        cli.prob_add, cli.prob_cancel, cli.prob_fill, cli.prob_modify
+    );
     info!("");
 
     // Initialize components
@@ -280,8 +278,11 @@ fn main() {
     // Phase 2: Steady-state simulation
     info!("Phase 2: Running steady-state simulation...");
     let start_time = Instant::now();
+    let duration_secs = cli.duration;
 
-    for i in 0..cli.operations {
+    let mut i: u64 = 0;
+    while start_time.elapsed().as_secs() < duration_secs {
+        i += 1;
         // Select action based on current state
         let action = select_action(
             state.bid_depth(),
@@ -390,7 +391,7 @@ fn main() {
         }
 
         // Periodic reporting
-        if (i + 1) % cli.report_interval == 0 {
+        if (i + 1).is_multiple_of(cli.report_interval) {
             let elapsed = start_time.elapsed();
             let ops_per_sec = (i + 1) as f64 / elapsed.as_secs_f64();
             info!(
@@ -405,13 +406,14 @@ fn main() {
 
     // Final report
     let total_time = start_time.elapsed();
-    let ops_per_sec = cli.operations as f64 / total_time.as_secs_f64();
+    let ops_per_sec = i as f64 / total_time.as_secs_f64();
 
     info!("");
     info!("{}", "=".repeat(60));
     info!("Simulation Complete");
     info!("{}", "=".repeat(60));
     info!("Total time:      {:?}", total_time);
+    info!("Operations:      {}", i);
     info!("Operations/sec:  {:.0}", ops_per_sec);
     info!("Final bid depth: {}", state.bid_depth());
     info!("Final ask depth: {}", state.ask_depth());
@@ -424,27 +426,3 @@ fn main() {
         info!("Best ask:        {}", ask_price);
     }
 }
-
-// Optional: Enable operation-level tracing with spans
-//
-// For detailed per-operation timing during debugging, you can add tracing spans.
-// Note: criterion benchmarks provide precise operation timing for performance analysis.
-//
-// Example - add before the hot loop:
-//
-//   use tracing::instrument;
-//
-//   #[instrument(skip_all)]
-//   fn execute_add(book: &mut OrderBook, order: Order, state: &mut BookState) {
-//       book.add_order(order);
-//       state.add_order(&order);
-//   }
-//
-// Or use inline spans:
-//
-//   let _span = tracing::debug_span!("add_order", order_id = order.order_id).entered();
-//   book.add_order(order);
-//
-// Then run with: RUST_LOG=debug cargo run --bin steady_state -- --operations 10000
-//
-// For CPU profiling without overhead, use perf/flamegraph without tracing.
