@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use dbn::{
     MboMsg,
-    decode::{DbnMetadata, DecodeRecord, dbn::Decoder},
+    decode::{DbnMetadata, DecodeRecord, DynReader, dbn::Decoder},
 };
 
 use rainybook::MarketByOrderMessage;
@@ -58,8 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!();
 
     // --- Decode metadata (does NOT load records into memory) ---
-    let file = fs::File::open(&cli.file)?;
-    let mut decoder = Decoder::new(file)?;
+    let mut decoder = Decoder::new(DynReader::from_file(&cli.file)?)?;
     let metadata = decoder.metadata();
 
     println!("=== DBN Metadata ===");
@@ -92,10 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map_or_else(|| "None".to_string(), |l| l.to_string())
     );
     println!("  Ts Out:     {}", metadata.ts_out);
-    println!(
-        "  Symbol Len: {} bytes",
-        metadata.symbol_cstr_len
-    );
+    println!("  Symbol Len: {} bytes", metadata.symbol_cstr_len);
 
     if !metadata.symbols.is_empty() {
         println!("  Symbols:    [{}]", metadata.symbols.join(", "));
@@ -114,10 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!();
 
     // --- Stream first N records ---
-    println!(
-        "=== First {} Record(s) ===",
-        cli.records
-    );
+    println!("=== First {} Record(s) ===", cli.records);
 
     let mut count = 0usize;
     let mut exhausted = false;

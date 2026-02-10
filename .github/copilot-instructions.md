@@ -211,7 +211,12 @@ use crate::report::Report;
 
 **Key principle:** If a type appears in a function signature, struct field, or is used multiple times, import it at the top. Only use inline `::` paths for disambiguation or one-off internal utilities.
 
-### 11. Dependencies and Features
+### 11. Output and Logging
+- **Binaries in `src/`** must use `tracing` and `tracing_subscriber` for all diagnostic output (info, debug, warnings, errors). Do not use `println!` or `eprintln!` for logging.
+  - The exception is output that is part of the program's actual user-facing output (e.g. displaying results to stdout for user consumption or interaction).
+- **Examples in `examples/`** may use `println!` freely for short, illustrative output. These are exploratory programs and do not require the tracing infrastructure.
+
+### 12. Dependencies and Features
 - Minimize dependencies - prefer std library when sufficient
 - Use feature flags for optional functionality
 - Prefer well-maintained, widely-used crates

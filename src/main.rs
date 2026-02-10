@@ -1,11 +1,10 @@
 use std::error::Error;
-use std::fs::File;
 use std::path::PathBuf;
 
 use clap::Parser;
 use dbn::{
     MboMsg,
-    decode::{DecodeRecord, dbn::Decoder},
+    decode::{DecodeRecord, DynReader, dbn::Decoder},
 };
 use tracing::{debug, info};
 
@@ -36,7 +35,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let cli = Cli::parse();
     info!("Using data file: {}", cli.data_path.display());
-    let file = File::open(&cli.data_path).expect("Failed to open data file");
 
     match cli.data_path.extension() {
         Some(ext) if ext == "dbn" || ext == "zst" => {
@@ -47,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut decoder = Decoder::new(file)?;
+    let mut decoder = Decoder::new(DynReader::from_file(&cli.data_path)?)?;
     let mut processor = MboProcessor::new();
 
     while let Some(record) = decoder.decode_record::<MboMsg>()? {

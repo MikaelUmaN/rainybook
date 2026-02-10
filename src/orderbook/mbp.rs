@@ -228,5 +228,4 @@ mod tests {
         assert_eq!(mbp_after_full.bids.get(&10000).unwrap().total_quantity, 350); // 400 - 50
         assert_eq!(mbp_after_full.bids.get(&10000).unwrap().order_count, 2); // Now 2 orders
     }
-
 }
