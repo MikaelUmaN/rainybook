@@ -33,6 +33,13 @@ RUST_LOG=debug cargo test
 # Build with optional features
 cargo build --features polars_perf
 cargo build --features polars_all_dtypes
+
+# Performance profiling
+cargo build --release --bin steady_state
+../target/release/steady_state --duration 30
+
+# Flamegraph generation
+cargo flamegraph --bin steady_state -- --duration 30
 ```
 
 ## Architecture
@@ -78,6 +85,110 @@ The codebase is organized into three main modules under `src/orderbook/`:
 - **num_enum**: Enum to/from integer conversions for Action and Side
 - **criterion**: Benchmarking framework
 - **tracing**: Structured logging
+- **rand/rand_chacha/rand_distr**: Random number generation for testing and profiling
+
+### Supporting Modules
+
+4. **generators.rs** - Order generation for testing and profiling
+   - `OrderGenerator`: Stateful generator with configurable price/quantity distributions
+   - Maintains max_bid/min_ask to prevent crossed books
+   - Seeded RNG for deterministic generation
+   - Used by benchmarks and steady_state binary
+
+### Binaries
+
+1. **src/main.rs** - CLI tool for processing market data files
+   - Supports .dbn, .parquet, and MBO message formats
+   - File format auto-detection
+   - Verbose logging option
+
+2. **src/bin/steady_state.rs** - Performance profiling binary
+   - Simulates steady-state order book with ~10 levels depth
+   - Deterministic execution with seeded RNG
+   - Dynamic probability adjustment to maintain depth
+   - Configurable operation mix (add/cancel/fill/modify)
+   - 2M+ operations per second throughput
+
+## Performance Profiling
+
+### Steady-State Binary
+
+The `steady_state` binary is designed for CPU profiling with Linux perf and flamegraph generation:
+
+**Basic Usage:**
+```bash
+# Run simulation for 30 seconds
+../target/release/steady_state --duration 30 --target-depth 10
+
+# With different operation mix
+../target/release/steady_state \
+    --duration 60 \
+    --prob-add 0.40 \
+    --prob-cancel 0.30 \
+    --prob-fill 0.25 \
+    --prob-modify 0.05
+```
+
+### Linux Perf Profiling
+
+**CPU Profiling:**
+```bash
+# Record samples with call graphs
+perf record -F 997 --call-graph dwarf \
+    ../target/release/steady_state --duration 30
+
+# View report
+perf report --stdio
+
+# Interactive TUI
+perf report
+```
+
+**Flamegraph Generation:**
+```bash
+# One command (easiest)
+cargo flamegraph --bin steady_state -- --duration 30
+
+# Manual with FlameGraph scripts
+perf record -F 997 --call-graph dwarf -g ../target/release/steady_state --duration 30
+perf script | stackcollapse-perf.pl | flamegraph.pl > flamegraph.svg
+```
+
+**Cache and Branch Analysis:**
+```bash
+# Cache performance
+perf stat -e cache-references,cache-misses \
+    ../target/release/steady_state --duration 10
+
+# Branch prediction
+perf stat -e branches,branch-misses \
+    ../target/release/steady_state --duration 10
+
+# Detailed stats
+perf stat -d ../target/release/steady_state --duration 10
+```
+
+### Profiling Workflow
+
+1. **Baseline**: Build with release or perf profile and establish baseline metrics
+2. **Profile**: Use perf to identify hotspots
+3. **Visualize**: Generate flamegraphs to see call hierarchy
+4. **Analyze**: Check cache misses, branch predictions, IPC
+5. **Optimize**: Make targeted improvements
+6. **Validate**: Compare before/after with perf stat and criterion benchmarks
+
+**See [docs/profiling.md](docs/profiling.md) for profiling documentation.**
+
+### Performance Monitoring
+
+- **Criterion benchmarks** (`cargo bench`) - Precise per-operation timing with statistical analysis
+- **Linux perf/flamegraph** - CPU profiling without overhead (see docs/profiling.md)
+- **Tracing spans** - Optional operation-level monitoring for debugging (see steady_state.rs for examples)
+
+### Feature Flags
+
+- `polars_perf`: Enable polars performant mode
+- `polars_all_dtypes`: Enable all polars data types
 
 ## Coding Standards
 

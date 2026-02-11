@@ -24,3 +24,8 @@ coverage/
 #.idea/
 
 worktrees/
+
+# perf data
+perf.data
+perf.data.old
+flamegraph.svg

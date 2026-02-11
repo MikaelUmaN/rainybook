@@ -1,3 +1,7 @@
 [build]
-jobs = 4                    # Limit jobs to 4 to not saturate all cpus
+jobs = 8                    # Limit jobs to not saturate all cpus
 target-dir = "../target"    # Force the same shared target directory for builds (rust-analyzer)
+rustflags = ["-C", "force-frame-pointers=yes"]  # Enable frame pointers globally for profiling
+
+[alias]
+perf-build = ["build", "--profile", "perf"]

@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-
-use polars::prelude::*;
 use std::collections::BTreeMap;
 
 use super::book::{OrderBook, OrderLevel};
@@ -34,34 +32,6 @@ pub struct MarketByPrice {
 impl MarketByPrice {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Flatten to DataFrame with one row per price level
-    pub fn to_dataframe(&self) -> PolarsResult<DataFrame> {
-        let n = self.bids.len() + self.asks.len();
-        let mut sides = Vec::with_capacity(n);
-        let mut prices = Vec::with_capacity(n);
-        let mut quantities = Vec::with_capacity(n);
-        let mut counts = Vec::with_capacity(n);
-
-        let mut push_side = |side: &'static str, book: &BTreeMap<i64, OrderLevelSummary>| {
-            for (&price, summary) in book {
-                sides.push(side);
-                prices.push(price);
-                quantities.push(summary.total_quantity);
-                counts.push(summary.order_count as u32);
-            }
-        };
-
-        push_side("Bid", &self.bids);
-        push_side("Ask", &self.asks);
-
-        df![
-            "side" => sides,
-            "price" => prices,
-            "total_quantity" => quantities,
-            "order_count" => counts,
-        ]
     }
 }
 
@@ -167,12 +137,6 @@ mod tests {
         // Empty book should produce empty MBP
         assert!(mbp.bids.is_empty());
         assert!(mbp.asks.is_empty());
-
-        // DataFrame conversion should work with empty book
-        let df = mbp
-            .to_dataframe()
-            .expect("Should convert empty MBP to DataFrame");
-        assert_eq!(df.height(), 0);
     }
 
     #[test]
@@ -263,34 +227,5 @@ mod tests {
         let mbp_after_full = MarketByPrice::from(&book);
         assert_eq!(mbp_after_full.bids.get(&10000).unwrap().total_quantity, 350); // 400 - 50
         assert_eq!(mbp_after_full.bids.get(&10000).unwrap().order_count, 2); // Now 2 orders
-    }
-
-    #[test]
-    fn test_to_dataframe_conversion() {
-        let mut book = OrderBook::new();
-
-        book.add_order(order(1, Side::Bid, 10000, 100));
-        book.add_order(order(2, Side::Bid, 9900, 200));
-        book.add_order(order(3, Side::Ask, 10100, 150));
-
-        let mbp = MarketByPrice::from(&book);
-        let df = mbp.to_dataframe().expect("Should convert to DataFrame");
-
-        // Should have 3 rows (2 bids + 1 ask)
-        assert_eq!(df.height(), 3);
-
-        // Should have expected columns
-        assert!(df.column("side").is_ok());
-        assert!(df.column("price").is_ok());
-        assert!(df.column("total_quantity").is_ok());
-        assert!(df.column("order_count").is_ok());
-
-        // Verify data types
-        let prices = df
-            .column("price")
-            .unwrap()
-            .i64()
-            .expect("Price should be i64");
-        assert_eq!(prices.len(), 3);
     }
 }
