@@ -57,16 +57,25 @@ The codebase is organized into three main modules under `src/orderbook/`:
 
 2. **mbo.rs** - Market-By-Order message processing
    - `MboProcessor`: Processes incoming MBO messages and maintains OrderBook state
-   - `MarketByOrderMessage`: Standardized MBO message format
+   - Tracks event completion via the dbn `F_LAST` flag (`is_event_complete()`)
+   - Only Add, Cancel, Modify, and Clear modify the book; Fill and Trade are informational no-ops
+   - `MarketByOrderMessage`: Standardized MBO message format with `is_last` flag
    - `Action` enum: Add, Cancel, Modify, Fill, Clear, Trade
-   - `into_mbo_messages()`: Converts Polars DataFrame to MBO messages
-   - Integrates with Databento's `dbn` crate for market data ingestion
+   - Integrates with Databento's `dbn` crate for market data ingestion (`TryFrom<&MboMsg>`)
 
 3. **mbp.rs** - Market-By-Price aggregation view
    - `MarketByPrice`: Aggregated view of order book by price level
-   - `OrderLevelSummary`: Contains price, total_quantity, and order_count
-   - Conversion from OrderBook to MarketByPrice
-   - DataFrame export via `to_dataframe()` for Polars integration
+   - `OrderLevelSummary`: Contains price, total_quantity, and order_count (`PartialEq`/`Eq`)
+   - `from_top_n(book, n)`: Create MBP-N snapshot with at most N levels per side
+   - `top_n_bids(n)` / `top_n_asks(n)`: Extract top-N levels in best-to-worst order
+   - Full conversion from OrderBook via `From<&OrderBook>`
+
+### Databento MBO Event Semantics
+
+- **LAST flag (`F_LAST`)**: Marks the end of an exchange event. A single event (e.g., a trade) produces multiple MBO messages (e.g., `T` -> `F` -> `C`). The order book is only in a consistent state after the LAST-flagged message is processed.
+- **Fill and Trade are no-ops**: They do not modify order sizes. If a trade affects a resting order, Databento sends a separate Modify (`M`) or Cancel (`C`) message. This is confirmed by Databento support.
+- **Only Add, Cancel, Modify, and Clear modify the book**.
+- **Validated against Databento MBP-10 ground truth**: 100% match rate across 6.5M+ snapshots (SIH6 Silver futures).
 
 ### Key Design Patterns
 
