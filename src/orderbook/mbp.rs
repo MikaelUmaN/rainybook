@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use super::book::{OrderBook, OrderLevel};
 
 /// An order level summary gives aggregate information about a price level.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderLevelSummary {
     pub price: i64,
     pub total_quantity: u64,
@@ -32,6 +32,37 @@ pub struct MarketByPrice {
 impl MarketByPrice {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create an MBP-N snapshot containing at most `n` levels per side.
+    /// Bids are the `n` highest-priced levels; asks are the `n` lowest-priced levels.
+    pub fn from_top_n(book: &OrderBook, n: usize) -> Self {
+        let bids = book
+            .bids
+            .iter()
+            .rev()
+            .take(n)
+            .map(|(&price, level)| (price, OrderLevelSummary::from(level)))
+            .collect();
+
+        let asks = book
+            .asks
+            .iter()
+            .take(n)
+            .map(|(&price, level)| (price, OrderLevelSummary::from(level)))
+            .collect();
+
+        Self { bids, asks }
+    }
+
+    /// Top-N bid levels, ordered best (highest price) to worst.
+    pub fn top_n_bids(&self, n: usize) -> Vec<OrderLevelSummary> {
+        self.bids.values().rev().take(n).copied().collect()
+    }
+
+    /// Top-N ask levels, ordered best (lowest price) to worst.
+    pub fn top_n_asks(&self, n: usize) -> Vec<OrderLevelSummary> {
+        self.asks.values().take(n).copied().collect()
     }
 }
 
@@ -196,6 +227,92 @@ mod tests {
             mbp_after.asks.is_empty(),
             "Asks should be empty after full fills"
         );
+    }
+
+    #[test]
+    fn test_from_top_n_limits_levels() {
+        let mut book = OrderBook::new();
+
+        // Create 5 bid levels
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 9900, 200));
+        book.add_order(order(3, Side::Bid, 9800, 300));
+        book.add_order(order(4, Side::Bid, 9700, 400));
+        book.add_order(order(5, Side::Bid, 9600, 500));
+
+        // Create 5 ask levels
+        book.add_order(order(6, Side::Ask, 10100, 50));
+        book.add_order(order(7, Side::Ask, 10200, 60));
+        book.add_order(order(8, Side::Ask, 10300, 70));
+        book.add_order(order(9, Side::Ask, 10400, 80));
+        book.add_order(order(10, Side::Ask, 10500, 90));
+
+        // MBP-3 should only have the top 3 levels per side
+        let mbp3 = MarketByPrice::from_top_n(&book, 3);
+        assert_eq!(mbp3.bids.len(), 3);
+        assert_eq!(mbp3.asks.len(), 3);
+
+        // Best 3 bids: 10000, 9900, 9800
+        let bid_prices: Vec<i64> = mbp3.bids.keys().copied().collect();
+        assert_eq!(bid_prices, vec![9800, 9900, 10000]);
+
+        // Best 3 asks: 10100, 10200, 10300
+        let ask_prices: Vec<i64> = mbp3.asks.keys().copied().collect();
+        assert_eq!(ask_prices, vec![10100, 10200, 10300]);
+    }
+
+    #[test]
+    fn test_top_n_bids_ordering() {
+        let mut book = OrderBook::new();
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Bid, 9900, 200));
+        book.add_order(order(3, Side::Bid, 9800, 300));
+
+        let mbp = MarketByPrice::from(&book);
+        let top2 = mbp.top_n_bids(2);
+
+        // Best (highest) first
+        assert_eq!(top2.len(), 2);
+        assert_eq!(top2[0].price, 10000);
+        assert_eq!(top2[1].price, 9900);
+    }
+
+    #[test]
+    fn test_top_n_asks_ordering() {
+        let mut book = OrderBook::new();
+        book.add_order(order(1, Side::Ask, 10100, 50));
+        book.add_order(order(2, Side::Ask, 10200, 60));
+        book.add_order(order(3, Side::Ask, 10300, 70));
+
+        let mbp = MarketByPrice::from(&book);
+        let top2 = mbp.top_n_asks(2);
+
+        // Best (lowest) first
+        assert_eq!(top2.len(), 2);
+        assert_eq!(top2[0].price, 10100);
+        assert_eq!(top2[1].price, 10200);
+    }
+
+    #[test]
+    fn test_from_top_n_fewer_levels_than_n() {
+        let mut book = OrderBook::new();
+        book.add_order(order(1, Side::Bid, 10000, 100));
+        book.add_order(order(2, Side::Ask, 10100, 50));
+
+        // Request 10 levels but only 1 exists per side
+        let mbp10 = MarketByPrice::from_top_n(&book, 10);
+        assert_eq!(mbp10.bids.len(), 1);
+        assert_eq!(mbp10.asks.len(), 1);
+    }
+
+    #[test]
+    fn test_order_level_summary_equality() {
+        let a = OrderLevelSummary { price: 100, total_quantity: 50, order_count: 3 };
+        let b = OrderLevelSummary { price: 100, total_quantity: 50, order_count: 3 };
+        let c = OrderLevelSummary { price: 100, total_quantity: 51, order_count: 3 };
+
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 
     #[test]
