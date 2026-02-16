@@ -78,12 +78,12 @@ impl TryFrom<&MboMsg> for MarketByOrderMessage {
     fn try_from(msg: &MboMsg) -> Result<Self, Self::Error> {
         let dbn_action = msg
             .action()
-            .map_err(|_| MboProcessError::UnknownAction(msg.action as i8))?;
+            .map_err(|_| MboProcessError::UnknownAction(msg.action))?;
         let action = convert_action(dbn_action)?;
 
         let dbn_side = msg
             .side()
-            .map_err(|_| MboProcessError::SideConversionError(msg.side as i8))?;
+            .map_err(|_| MboProcessError::SideConversionError(msg.side))?;
         let side = convert_side(dbn_side, action)?;
 
         let is_last = msg.flags.raw() & flags::LAST != 0;
@@ -204,34 +204,53 @@ impl MboProcessor {
 mod tests {
     use super::*;
 
-    fn msg(action: Action, order_id: u64, side: Side, price: i64, size: u32, is_last: bool) -> MarketByOrderMessage {
-        MarketByOrderMessage { action, side, price, order_id, size, is_last }
+    fn msg(
+        action: Action,
+        order_id: u64,
+        side: Side,
+        price: i64,
+        size: u32,
+        is_last: bool,
+    ) -> MarketByOrderMessage {
+        MarketByOrderMessage {
+            action,
+            side,
+            price,
+            order_id,
+            size,
+            is_last,
+        }
     }
 
     #[test]
     fn test_fill_does_not_modify_book() {
         let mut proc = MboProcessor::new();
         // Add an order
-        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, true)).unwrap();
+        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
 
         // Fill should NOT change the order
-        proc.process_message(&msg(Action::Fill, 1, Side::Bid, 100, 20, false)).unwrap();
+        proc.process_message(&msg(Action::Fill, 1, Side::Bid, 100, 20, false))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
 
         // Full fill should also NOT change the order
-        proc.process_message(&msg(Action::Fill, 1, Side::Bid, 100, 50, true)).unwrap();
+        proc.process_message(&msg(Action::Fill, 1, Side::Bid, 100, 50, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
     }
 
     #[test]
     fn test_trade_does_not_modify_book() {
         let mut proc = MboProcessor::new();
-        proc.process_message(&msg(Action::Add, 1, Side::Ask, 200, 30, true)).unwrap();
+        proc.process_message(&msg(Action::Add, 1, Side::Ask, 200, 30, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_ask(), Some((200, 30)));
 
         // Trade should NOT change the order
-        proc.process_message(&msg(Action::Trade, 1, Side::Ask, 200, 10, true)).unwrap();
+        proc.process_message(&msg(Action::Trade, 1, Side::Ask, 200, 10, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_ask(), Some((200, 30)));
     }
 
@@ -242,19 +261,23 @@ mod tests {
         assert!(proc.is_event_complete());
 
         // Non-LAST message sets event_complete to false
-        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, false)).unwrap();
+        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, false))
+            .unwrap();
         assert!(!proc.is_event_complete());
 
         // LAST message sets event_complete to true
-        proc.process_message(&msg(Action::Add, 2, Side::Bid, 100, 30, true)).unwrap();
+        proc.process_message(&msg(Action::Add, 2, Side::Bid, 100, 30, true))
+            .unwrap();
         assert!(proc.is_event_complete());
 
         // Trade without LAST -> incomplete
-        proc.process_message(&msg(Action::Trade, 99, Side::Bid, 100, 10, false)).unwrap();
+        proc.process_message(&msg(Action::Trade, 99, Side::Bid, 100, 10, false))
+            .unwrap();
         assert!(!proc.is_event_complete());
 
         // Fill with LAST -> complete
-        proc.process_message(&msg(Action::Fill, 1, Side::Bid, 100, 10, true)).unwrap();
+        proc.process_message(&msg(Action::Fill, 1, Side::Bid, 100, 10, true))
+            .unwrap();
         assert!(proc.is_event_complete());
     }
 
@@ -263,15 +286,18 @@ mod tests {
         let mut proc = MboProcessor::new();
 
         // Add
-        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, true)).unwrap();
+        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
 
         // Modify (changes price and size)
-        proc.process_message(&msg(Action::Modify, 1, Side::Bid, 110, 60, true)).unwrap();
+        proc.process_message(&msg(Action::Modify, 1, Side::Bid, 110, 60, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), Some((110, 60)));
 
         // Cancel
-        proc.process_message(&msg(Action::Cancel, 1, Side::Bid, 0, 0, true)).unwrap();
+        proc.process_message(&msg(Action::Cancel, 1, Side::Bid, 0, 0, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), None);
     }
 
@@ -279,12 +305,15 @@ mod tests {
     fn test_clear_resets_book() {
         let mut proc = MboProcessor::new();
 
-        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, true)).unwrap();
-        proc.process_message(&msg(Action::Add, 2, Side::Ask, 200, 30, true)).unwrap();
+        proc.process_message(&msg(Action::Add, 1, Side::Bid, 100, 50, true))
+            .unwrap();
+        proc.process_message(&msg(Action::Add, 2, Side::Ask, 200, 30, true))
+            .unwrap();
         assert!(proc.order_book().best_bid().is_some());
         assert!(proc.order_book().best_ask().is_some());
 
-        proc.process_message(&msg(Action::Clear, 0, Side::Bid, 0, 0, true)).unwrap();
+        proc.process_message(&msg(Action::Clear, 0, Side::Bid, 0, 0, true))
+            .unwrap();
         assert_eq!(proc.order_book().best_bid(), None);
         assert_eq!(proc.order_book().best_ask(), None);
     }

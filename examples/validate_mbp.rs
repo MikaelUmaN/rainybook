@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use dbn::{
-    BidAskPair, FlagSet, Mbp10Msg, MboMsg, UNDEF_PRICE,
+    BidAskPair, FlagSet, MboMsg, Mbp10Msg, UNDEF_PRICE,
     decode::{DbnMetadata, DecodeRecord, DynReader, dbn::Decoder},
     flags,
 };
@@ -102,26 +102,10 @@ impl fmt::Display for MboStats {
                 self.action_counts.get(action).unwrap_or(&0)
             )?;
         }
-        writeln!(
-            f,
-            "  SNAPSHOT-flagged msgs:  {}",
-            self.snapshot_flagged
-        )?;
-        writeln!(
-            f,
-            "  Clear (book reset) events: {}",
-            self.clear_events
-        )?;
-        writeln!(
-            f,
-            "  Conversion errors:     {}",
-            self.conversion_errors
-        )?;
-        writeln!(
-            f,
-            "  Processing errors:     {}",
-            self.processing_errors
-        )
+        writeln!(f, "  SNAPSHOT-flagged msgs:  {}", self.snapshot_flagged)?;
+        writeln!(f, "  Clear (book reset) events: {}", self.clear_events)?;
+        writeln!(f, "  Conversion errors:     {}", self.conversion_errors)?;
+        writeln!(f, "  Processing errors:     {}", self.processing_errors)
     }
 }
 
@@ -203,13 +187,20 @@ fn compare_levels(
 
 fn print_comparison(comparisons: &[LevelComparison]) {
     println!(
-        "  {:<3} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {}",
+        "  {:<3} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | Status",
         "Lvl",
-        "Our Bid Px", "Sz", "Ct",
-        "Exp Bid Px", "Sz", "Ct",
-        "Our Ask Px", "Sz", "Ct",
-        "Exp Ask Px", "Sz", "Ct",
-        "Status"
+        "Our Bid Px",
+        "Sz",
+        "Ct",
+        "Exp Bid Px",
+        "Sz",
+        "Ct",
+        "Our Ask Px",
+        "Sz",
+        "Ct",
+        "Exp Ask Px",
+        "Sz",
+        "Ct"
     );
     println!("  {}", "-".repeat(155));
 
@@ -241,10 +232,18 @@ fn print_comparison(comparisons: &[LevelComparison]) {
         println!(
             "  {:<3} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {:>14} {:>7} {:>5} | {}",
             c.level,
-            our_bid_px, our_bid_sz, our_bid_ct,
-            format_price(c.expected.bid_px), c.expected.bid_sz, c.expected.bid_ct,
-            our_ask_px, our_ask_sz, our_ask_ct,
-            format_price(c.expected.ask_px), c.expected.ask_sz, c.expected.ask_ct,
+            our_bid_px,
+            our_bid_sz,
+            our_bid_ct,
+            format_price(c.expected.bid_px),
+            c.expected.bid_sz,
+            c.expected.bid_ct,
+            our_ask_px,
+            our_ask_sz,
+            our_ask_ct,
+            format_price(c.expected.ask_px),
+            c.expected.ask_sz,
+            c.expected.ask_ct,
             status,
         );
     }
@@ -275,19 +274,22 @@ fn do_comparison(
     }
 
     // Sanity check: verify (ts_event, sequence) alignment
-    if let Some(mbo) = mbo_record {
-        if mbo.hd.ts_event != mbp_record.hd.ts_event || mbo.sequence != mbp_record.sequence {
+    if let Some(mbo) = mbo_record
+        && (mbo.hd.ts_event != mbp_record.hd.ts_event || mbo.sequence != mbp_record.sequence) {
             val_stats.ts_seq_misalignments += 1;
             if val_stats.ts_seq_misalignments <= 5 {
                 eprintln!(
                     "  MISALIGNMENT at snapshot #{}: MBO(ts={}, seq={}, action={}) vs MBP(ts={}, seq={}, action='{}')",
                     val_stats.snapshots_checked,
-                    mbo.hd.ts_event, mbo.sequence, mbo.action as u8 as char,
-                    mbp_record.hd.ts_event, mbp_record.sequence, mbp_action,
+                    mbo.hd.ts_event,
+                    mbo.sequence,
+                    mbo.action as u8 as char,
+                    mbp_record.hd.ts_event,
+                    mbp_record.sequence,
+                    mbp_action,
                 );
             }
         }
-    }
 
     let mbp = MarketByPrice::from_top_n(processor.order_book(), 10);
     let top_bids = mbp.top_n_bids(10);
@@ -313,9 +315,7 @@ fn do_comparison(
                 .map(|m| {
                     format!(
                         "MBO: ts={}, seq={}, action='{}'",
-                        m.hd.ts_event,
-                        m.sequence,
-                        m.action as u8 as char
+                        m.hd.ts_event, m.sequence, m.action as u8 as char
                     )
                 })
                 .unwrap_or_else(|| "MBO: (snapshot phase)".to_string());
@@ -383,11 +383,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("=== Streaming Validation (MBP-10-driven) ===");
 
     // Helper: process one MBO record and update stats
-    fn process_mbo_record(
-        record: &MboMsg,
-        processor: &mut MboProcessor,
-        mbo_stats: &mut MboStats,
-    ) {
+    fn process_mbo_record(record: &MboMsg, processor: &mut MboProcessor, mbo_stats: &mut MboStats) {
         mbo_stats.total_messages += 1;
         if is_snapshot(record.flags) {
             mbo_stats.snapshot_flagged += 1;
@@ -461,7 +457,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 } else {
                     match mbo_decoder.decode_record::<MboMsg>()? {
                         Some(r) => r.clone(),
-                        None => { mbo_exhausted = true; break; }
+                        None => {
+                            mbo_exhausted = true;
+                            break;
+                        }
                     }
                 };
 
@@ -520,12 +519,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Log snapshot result
         if is_snapshot(mbp_record.flags) {
-            let status = if val_stats.full_matches > 0 { "MATCH" } else { "MISMATCH" };
+            let status = if val_stats.full_matches > 0 {
+                "MATCH"
+            } else {
+                "MISMATCH"
+            };
             println!("  Snapshot comparison: {status}");
         }
 
         // Progress
-        if val_stats.snapshots_checked as usize % cli.progress_interval == 0 {
+        if (val_stats.snapshots_checked as usize).is_multiple_of(cli.progress_interval) {
             let elapsed = start_time.elapsed().as_secs_f64();
             let rate = val_stats.snapshots_checked as f64 / elapsed;
             println!(
@@ -553,10 +556,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!();
 
     println!("--- MBP-10 Record Statistics ---");
-    println!(
-        "  Total snapshots checked: {}",
-        val_stats.snapshots_checked
-    );
+    println!("  Total snapshots checked: {}", val_stats.snapshots_checked);
     println!(
         "  SNAPSHOT-flagged MBP-10 records: {}",
         val_stats.mbp_snapshot_flagged
@@ -646,10 +646,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "  Snapshot initialization (SNAPSHOT-flagged MBO): {} messages",
         mbo_stats.snapshot_flagged
     );
-    println!(
-        "  Book resets (Clear events): {}",
-        mbo_stats.clear_events
-    );
+    println!("  Book resets (Clear events): {}", mbo_stats.clear_events);
     println!();
 
     println!(

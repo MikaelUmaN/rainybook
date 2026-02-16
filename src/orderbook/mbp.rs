@@ -307,9 +307,21 @@ mod tests {
 
     #[test]
     fn test_order_level_summary_equality() {
-        let a = OrderLevelSummary { price: 100, total_quantity: 50, order_count: 3 };
-        let b = OrderLevelSummary { price: 100, total_quantity: 50, order_count: 3 };
-        let c = OrderLevelSummary { price: 100, total_quantity: 51, order_count: 3 };
+        let a = OrderLevelSummary {
+            price: 100,
+            total_quantity: 50,
+            order_count: 3,
+        };
+        let b = OrderLevelSummary {
+            price: 100,
+            total_quantity: 50,
+            order_count: 3,
+        };
+        let c = OrderLevelSummary {
+            price: 100,
+            total_quantity: 51,
+            order_count: 3,
+        };
 
         assert_eq!(a, b);
         assert_ne!(a, c);
