@@ -3,5 +3,5 @@ pub mod orderbook;
 
 pub use orderbook::{
     Action, MarketByOrderMessage, MarketByPrice, MboProcessError, MboProcessor, Order, OrderBook,
-    OrderBookError, OrderLevelSummary, Side,
+    OrderBookError, OrderLevelSummary, Side, Trade,
 };

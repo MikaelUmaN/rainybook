@@ -27,6 +27,15 @@ impl From<&OrderLevel> for OrderLevelSummary {
 pub struct MarketByPrice {
     pub bids: BTreeMap<i64, OrderLevelSummary>,
     pub asks: BTreeMap<i64, OrderLevelSummary>,
+    /// Optional exchange event timestamp (nanoseconds since UNIX epoch).
+    /// Set when snapshot is created with metadata.
+    pub event_time: Option<u64>,
+    /// Optional server receive timestamp (nanoseconds since UNIX epoch).
+    /// Set when snapshot is created with metadata.
+    pub recv_time: Option<u64>,
+    /// Optional sequence number from the last processed message.
+    /// Set when snapshot is created with metadata.
+    pub sequence: Option<u32>,
 }
 
 impl MarketByPrice {
@@ -52,7 +61,13 @@ impl MarketByPrice {
             .map(|(&price, level)| (price, OrderLevelSummary::from(level)))
             .collect();
 
-        Self { bids, asks }
+        Self {
+            bids,
+            asks,
+            event_time: None,
+            recv_time: None,
+            sequence: None,
+        }
     }
 
     /// Top-N bid levels, ordered best (highest price) to worst.
@@ -63,6 +78,33 @@ impl MarketByPrice {
     /// Top-N ask levels, ordered best (lowest price) to worst.
     pub fn top_n_asks(&self, n: usize) -> Vec<OrderLevelSummary> {
         self.asks.values().take(n).copied().collect()
+    }
+
+    /// Create an MBP-N snapshot with timestamp metadata from the processor.
+    /// The snapshot contains at most `n` levels per side, along with the
+    /// event_time, recv_time, and sequence from the last processed message.
+    pub fn from_top_n_with_metadata(
+        processor: &crate::orderbook::mbo::MboProcessor,
+        n: usize,
+    ) -> Self {
+        let mut mbp = Self::from_top_n(processor.order_book(), n);
+        let (event_time, recv_time, _) = processor.last_timestamps();
+        mbp.event_time = Some(event_time);
+        mbp.recv_time = Some(recv_time);
+        mbp.sequence = Some(processor.last_sequence_number());
+        mbp
+    }
+
+    /// Create a full MBP snapshot with timestamp metadata from the processor.
+    /// The snapshot contains all price levels, along with the event_time,
+    /// recv_time, and sequence from the last processed message.
+    pub fn from_book_with_metadata(processor: &crate::orderbook::mbo::MboProcessor) -> Self {
+        let mut mbp = Self::from(processor.order_book());
+        let (event_time, recv_time, _) = processor.last_timestamps();
+        mbp.event_time = Some(event_time);
+        mbp.recv_time = Some(recv_time);
+        mbp.sequence = Some(processor.last_sequence_number());
+        mbp
     }
 }
 
@@ -80,7 +122,13 @@ impl From<&OrderBook> for MarketByPrice {
             .map(|(&price, level)| (price, OrderLevelSummary::from(level)))
             .collect();
 
-        Self { bids, asks }
+        Self {
+            bids,
+            asks,
+            event_time: None,
+            recv_time: None,
+            sequence: None,
+        }
     }
 }
 
@@ -356,5 +404,98 @@ mod tests {
         let mbp_after_full = MarketByPrice::from(&book);
         assert_eq!(mbp_after_full.bids.get(&10000).unwrap().total_quantity, 350); // 400 - 50
         assert_eq!(mbp_after_full.bids.get(&10000).unwrap().order_count, 2); // Now 2 orders
+    }
+
+    #[test]
+    fn test_mbp_snapshot_without_metadata() {
+        let mut book = OrderBook::new();
+        book.add_order(order(1, Side::Bid, 10000, 100));
+
+        let mbp = MarketByPrice::from(&book);
+
+        // Default snapshots have no timestamp metadata
+        assert_eq!(mbp.event_time, None);
+        assert_eq!(mbp.recv_time, None);
+        assert_eq!(mbp.sequence, None);
+    }
+
+    #[test]
+    fn test_mbp_snapshot_with_metadata() {
+        use crate::orderbook::mbo::{Action, MboProcessor, MarketByOrderMessage};
+
+        let mut processor = MboProcessor::new();
+
+        // Create message with known timestamps
+        let msg = MarketByOrderMessage {
+            action: Action::Add,
+            side: Side::Bid,
+            price: 10000,
+            order_id: 1,
+            size: 100,
+            is_last: true,
+            sequence: 42,
+            event_time: 1234567890_000_000_000,
+            recv_time: 1234567890_050_000_000,
+            ts_in_delta: -10_000,
+        };
+        processor.process_message(&msg).unwrap();
+
+        // Create snapshot with metadata
+        let mbp = MarketByPrice::from_top_n_with_metadata(&processor, 10);
+
+        // Verify metadata is captured
+        assert_eq!(mbp.event_time, Some(1234567890_000_000_000));
+        assert_eq!(mbp.recv_time, Some(1234567890_050_000_000));
+        assert_eq!(mbp.sequence, Some(42));
+
+        // Verify book data is still correct
+        assert_eq!(mbp.bids.len(), 1);
+        let bid = mbp.bids.get(&10000).unwrap();
+        assert_eq!(bid.total_quantity, 100);
+    }
+
+    #[test]
+    fn test_mbp_metadata_tracks_latest_message() {
+        use crate::orderbook::mbo::{Action, MboProcessor, MarketByOrderMessage};
+
+        let mut processor = MboProcessor::new();
+
+        // Process multiple messages
+        processor
+            .process_message(&MarketByOrderMessage {
+                action: Action::Add,
+                side: Side::Bid,
+                price: 100,
+                order_id: 1,
+                size: 50,
+                is_last: true,
+                sequence: 1,
+                event_time: 1000,
+                recv_time: 1050,
+                ts_in_delta: -10,
+            })
+            .unwrap();
+
+        processor
+            .process_message(&MarketByOrderMessage {
+                action: Action::Add,
+                side: Side::Bid,
+                price: 99,
+                order_id: 2,
+                size: 30,
+                is_last: true,
+                sequence: 2,
+                event_time: 2000,
+                recv_time: 2050,
+                ts_in_delta: -10,
+            })
+            .unwrap();
+
+        let mbp = MarketByPrice::from_book_with_metadata(&processor);
+
+        // Should capture timestamp of last processed message
+        assert_eq!(mbp.event_time, Some(2000));
+        assert_eq!(mbp.recv_time, Some(2050));
+        assert_eq!(mbp.sequence, Some(2));
     }
 }
