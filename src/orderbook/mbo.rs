@@ -4,6 +4,7 @@ use dbn::enums::Side as DbnSide;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use strum::Display;
 use thiserror::Error;
+use time::{Duration, OffsetDateTime};
 use tracing::debug;
 
 use crate::orderbook::events::{
@@ -39,7 +40,13 @@ pub trait MboObserver {
     /// Called after any message where `is_last` is true.
     /// The book is in a consistent state at this point, suitable for
     /// snapshot extraction or top-of-book sampling.
-    fn on_event_complete(&mut self, _book: &OrderBook, _event_time: u64, _recv_time: u64) {}
+    fn on_event_complete(
+        &mut self,
+        _book: &OrderBook,
+        _event_time: OffsetDateTime,
+        _recv_time: OffsetDateTime,
+    ) {
+    }
 }
 
 /// Zero-cost no-op observer. All methods are optimized away by the compiler.
@@ -73,7 +80,12 @@ impl<A: MboObserver, B: MboObserver> MboObserver for (A, B) {
         self.1.on_clear();
     }
 
-    fn on_event_complete(&mut self, book: &OrderBook, event_time: u64, recv_time: u64) {
+    fn on_event_complete(
+        &mut self,
+        book: &OrderBook,
+        event_time: OffsetDateTime,
+        recv_time: OffsetDateTime,
+    ) {
         self.0.on_event_complete(book, event_time, recv_time);
         self.1.on_event_complete(book, event_time, recv_time);
     }
@@ -120,15 +132,12 @@ pub struct MarketByOrderMessage {
     pub is_last: bool,
     /// The sequence number (assigned by the venue) of the message.
     pub sequence: u32,
-    /// Exchange event timestamp in nanoseconds since UNIX epoch.
-    /// This is the timestamp when the event occurred at the exchange.
-    pub event_time: u64,
-    /// Server receive timestamp in nanoseconds since UNIX epoch.
-    /// This is when the market data server received the message.
-    pub recv_time: u64,
-    /// Delta in nanoseconds before `recv_time`.
-    /// Used for sub-nanosecond precision timing adjustments.
-    pub ts_in_delta: i32,
+    /// Exchange event timestamp.
+    pub event_time: OffsetDateTime,
+    /// Server receive timestamp.
+    pub recv_time: OffsetDateTime,
+    /// Duration delta before `recv_time`.
+    pub ts_in_delta: Duration,
 }
 
 fn convert_action(dbn_action: DbnAction) -> Result<Action, MboProcessError> {
@@ -182,9 +191,11 @@ impl TryFrom<&MboMsg> for MarketByOrderMessage {
             size: msg.size,
             is_last: msg.flags.is_last(),
             sequence: msg.sequence,
-            event_time: msg.hd.ts_event,
-            recv_time: msg.ts_recv,
-            ts_in_delta: msg.ts_in_delta,
+            event_time: OffsetDateTime::from_unix_timestamp_nanos(msg.hd.ts_event as i128)
+                .expect("dbn ts_event is within supported range"),
+            recv_time: OffsetDateTime::from_unix_timestamp_nanos(msg.ts_recv as i128)
+                .expect("dbn ts_recv is within supported range"),
+            ts_in_delta: Duration::nanoseconds(msg.ts_in_delta as i64),
         })
     }
 }
@@ -219,11 +230,11 @@ pub struct MboProcessor<O: MboObserver = ()> {
     /// The sequence number (assigned by the venue) of the last record processed.
     sequence_number: u32,
     /// Exchange event timestamp of the last processed message.
-    last_event_time: u64,
+    last_event_time: OffsetDateTime,
     /// Server receive timestamp of the last processed message.
-    last_recv_time: u64,
-    /// Timestamp delta of the last processed message.
-    last_ts_in_delta: i32,
+    last_recv_time: OffsetDateTime,
+    /// Duration delta of the last processed message.
+    last_ts_in_delta: Duration,
 }
 
 impl Default for MboProcessor {
@@ -234,9 +245,9 @@ impl Default for MboProcessor {
             // Start as true so the initial (empty) state is considered consistent.
             event_complete: true,
             sequence_number: 0,
-            last_event_time: 0,
-            last_recv_time: 0,
-            last_ts_in_delta: 0,
+            last_event_time: OffsetDateTime::UNIX_EPOCH,
+            last_recv_time: OffsetDateTime::UNIX_EPOCH,
+            last_ts_in_delta: Duration::ZERO,
         }
     }
 }
@@ -255,9 +266,9 @@ impl<O: MboObserver> MboProcessor<O> {
             observer,
             event_complete: true,
             sequence_number: 0,
-            last_event_time: 0,
-            last_recv_time: 0,
-            last_ts_in_delta: 0,
+            last_event_time: OffsetDateTime::UNIX_EPOCH,
+            last_recv_time: OffsetDateTime::UNIX_EPOCH,
+            last_ts_in_delta: Duration::ZERO,
         }
     }
 
@@ -292,26 +303,30 @@ impl<O: MboObserver> MboProcessor<O> {
     }
 
     /// Returns the event timestamp (exchange timestamp) of the last processed message.
-    /// Returns 0 if no messages have been processed.
-    pub fn last_event_time(&self) -> u64 {
+    /// Returns `OffsetDateTime::UNIX_EPOCH` if no messages have been processed.
+    pub fn last_event_time(&self) -> OffsetDateTime {
         self.last_event_time
     }
 
     /// Returns the receive timestamp (server timestamp) of the last processed message.
-    /// Returns 0 if no messages have been processed.
-    pub fn last_recv_time(&self) -> u64 {
+    /// Returns `OffsetDateTime::UNIX_EPOCH` if no messages have been processed.
+    pub fn last_recv_time(&self) -> OffsetDateTime {
         self.last_recv_time
     }
 
-    /// Returns the timestamp delta of the last processed message.
-    pub fn last_ts_in_delta(&self) -> i32 {
+    /// Returns the duration delta of the last processed message.
+    pub fn last_ts_in_delta(&self) -> Duration {
         self.last_ts_in_delta
     }
 
     /// Returns all timestamp information as a tuple: (event_time, recv_time, ts_in_delta).
     /// This is useful when you need all timestamp data together.
-    pub fn last_timestamps(&self) -> (u64, u64, i32) {
-        (self.last_event_time, self.last_recv_time, self.last_ts_in_delta)
+    pub fn last_timestamps(&self) -> (OffsetDateTime, OffsetDateTime, Duration) {
+        (
+            self.last_event_time,
+            self.last_recv_time,
+            self.last_ts_in_delta,
+        )
     }
 
     /// Processes an incoming MBO message and updates the order book accordingly.
@@ -420,20 +435,27 @@ impl<O: MboObserver> MboProcessor<O> {
 mod tests {
     use super::*;
 
+    use time::{Duration, OffsetDateTime};
+
+    fn ts(s: &str) -> OffsetDateTime {
+        use time::format_description::well_known::Rfc3339;
+        OffsetDateTime::parse(s, &Rfc3339).unwrap()
+    }
+
     /// Helper for creating test messages with auto-incrementing sequence numbers and timestamps.
     /// Each test should create its own instance to get monotonic sequences and timestamps.
     struct TestMessageBuilder {
         next_sequence: u32,
-        next_event_time: u64,
-        time_increment: u64,
+        next_event_time: OffsetDateTime,
+        time_increment: Duration,
     }
 
     impl TestMessageBuilder {
         fn new() -> Self {
             Self {
                 next_sequence: 1,
-                next_event_time: 1_704_067_200_000_000_000, // 2024-01-01
-                time_increment: 1_000_000,                  // 1ms between messages
+                next_event_time: ts("2024-01-01T00:00:00Z"),
+                time_increment: Duration::milliseconds(1),
             }
         }
 
@@ -451,7 +473,7 @@ mod tests {
 
             let event_time = self.next_event_time;
             self.next_event_time += self.time_increment;
-            let recv_time = event_time + 50_000; // +50µs latency
+            let recv_time = event_time + Duration::microseconds(50);
 
             MarketByOrderMessage {
                 action,
@@ -463,7 +485,7 @@ mod tests {
                 sequence,
                 event_time,
                 recv_time,
-                ts_in_delta: -10_000, // -10µs typical value
+                ts_in_delta: Duration::microseconds(-10),
             }
         }
     }
@@ -577,9 +599,9 @@ mod tests {
         let mut proc = MboProcessor::new();
         let mut seq = TestMessageBuilder::new();
 
-        // Initially timestamps are 0
-        assert_eq!(proc.last_event_time(), 0);
-        assert_eq!(proc.last_recv_time(), 0);
+        // Initially timestamps are at UNIX epoch
+        assert_eq!(proc.last_event_time(), OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(proc.last_recv_time(), OffsetDateTime::UNIX_EPOCH);
 
         // Process first message
         let msg1 = seq.msg(Action::Add, 1, Side::Bid, 100, 50, true);
@@ -640,7 +662,12 @@ mod tests {
         fn on_clear(&mut self) {
             self.clears += 1;
         }
-        fn on_event_complete(&mut self, _book: &OrderBook, _event_time: u64, _recv_time: u64) {
+        fn on_event_complete(
+            &mut self,
+            _book: &OrderBook,
+            _event_time: OffsetDateTime,
+            _recv_time: OffsetDateTime,
+        ) {
             self.event_completes += 1;
         }
     }
@@ -700,19 +727,29 @@ mod tests {
     #[test]
     fn test_event_complete_receives_correct_book_and_timestamps() {
         /// Observer that captures the book state at event completion.
-        #[derive(Debug, Default)]
+        #[derive(Debug)]
         struct SnapshotObserver {
             best_bid_at_complete: Option<(i64, u64)>,
-            captured_event_time: u64,
-            captured_recv_time: u64,
+            captured_event_time: OffsetDateTime,
+            captured_recv_time: OffsetDateTime,
+        }
+
+        impl Default for SnapshotObserver {
+            fn default() -> Self {
+                Self {
+                    best_bid_at_complete: None,
+                    captured_event_time: OffsetDateTime::UNIX_EPOCH,
+                    captured_recv_time: OffsetDateTime::UNIX_EPOCH,
+                }
+            }
         }
 
         impl MboObserver for SnapshotObserver {
             fn on_event_complete(
                 &mut self,
                 book: &OrderBook,
-                event_time: u64,
-                recv_time: u64,
+                event_time: OffsetDateTime,
+                recv_time: OffsetDateTime,
             ) {
                 self.best_bid_at_complete = book.best_bid();
                 self.captured_event_time = event_time;

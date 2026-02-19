@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use time::OffsetDateTime;
 
 use super::book::{OrderBook, OrderLevel};
 
@@ -27,12 +28,12 @@ impl From<&OrderLevel> for OrderLevelSummary {
 pub struct MarketByPrice {
     pub bids: BTreeMap<i64, OrderLevelSummary>,
     pub asks: BTreeMap<i64, OrderLevelSummary>,
-    /// Optional exchange event timestamp (nanoseconds since UNIX epoch).
+    /// Optional exchange event timestamp.
     /// Set when snapshot is created with metadata.
-    pub event_time: Option<u64>,
-    /// Optional server receive timestamp (nanoseconds since UNIX epoch).
+    pub event_time: Option<OffsetDateTime>,
+    /// Optional server receive timestamp.
     /// Set when snapshot is created with metadata.
-    pub recv_time: Option<u64>,
+    pub recv_time: Option<OffsetDateTime>,
     /// Optional sequence number from the last processed message.
     /// Set when snapshot is created with metadata.
     pub sequence: Option<u32>,
@@ -136,6 +137,13 @@ impl From<&OrderBook> for MarketByPrice {
 mod tests {
     use super::*;
     use crate::orderbook::{Order, Side};
+
+    use time::{Duration, OffsetDateTime};
+
+    fn ts(s: &str) -> OffsetDateTime {
+        use time::format_description::well_known::Rfc3339;
+        OffsetDateTime::parse(s, &Rfc3339).unwrap()
+    }
 
     /// Helper to create an Order for tests.
     fn order(order_id: u64, side: Side, price: i64, size: u64) -> Order {
@@ -421,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_mbp_snapshot_with_metadata() {
-        use crate::orderbook::mbo::{Action, MboProcessor, MarketByOrderMessage};
+        use crate::orderbook::mbo::{Action, MarketByOrderMessage, MboProcessor};
 
         let mut processor = MboProcessor::new();
 
@@ -434,9 +442,9 @@ mod tests {
             size: 100,
             is_last: true,
             sequence: 42,
-            event_time: 1234567890_000_000_000,
-            recv_time: 1234567890_050_000_000,
-            ts_in_delta: -10_000,
+            event_time: ts("2009-02-13T23:31:30Z"),
+            recv_time: ts("2009-02-13T23:31:30.000050Z"), // +50µs latency
+            ts_in_delta: Duration::microseconds(-10),
         };
         processor.process_message(&msg).unwrap();
 
@@ -444,8 +452,8 @@ mod tests {
         let mbp = MarketByPrice::from_top_n_with_metadata(&processor, 10);
 
         // Verify metadata is captured
-        assert_eq!(mbp.event_time, Some(1234567890_000_000_000));
-        assert_eq!(mbp.recv_time, Some(1234567890_050_000_000));
+        assert_eq!(mbp.event_time, Some(ts("2009-02-13T23:31:30Z")));
+        assert_eq!(mbp.recv_time, Some(ts("2009-02-13T23:31:30.000050Z")));
         assert_eq!(mbp.sequence, Some(42));
 
         // Verify book data is still correct
@@ -456,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_mbp_metadata_tracks_latest_message() {
-        use crate::orderbook::mbo::{Action, MboProcessor, MarketByOrderMessage};
+        use crate::orderbook::mbo::{Action, MarketByOrderMessage, MboProcessor};
 
         let mut processor = MboProcessor::new();
 
@@ -470,9 +478,9 @@ mod tests {
                 size: 50,
                 is_last: true,
                 sequence: 1,
-                event_time: 1000,
-                recv_time: 1050,
-                ts_in_delta: -10,
+                event_time: OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(1000),
+                recv_time: OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(1050),
+                ts_in_delta: Duration::nanoseconds(-10),
             })
             .unwrap();
 
@@ -485,17 +493,23 @@ mod tests {
                 size: 30,
                 is_last: true,
                 sequence: 2,
-                event_time: 2000,
-                recv_time: 2050,
-                ts_in_delta: -10,
+                event_time: OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(2000),
+                recv_time: OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(2050),
+                ts_in_delta: Duration::nanoseconds(-10),
             })
             .unwrap();
 
         let mbp = MarketByPrice::from_book_with_metadata(&processor);
 
         // Should capture timestamp of last processed message
-        assert_eq!(mbp.event_time, Some(2000));
-        assert_eq!(mbp.recv_time, Some(2050));
+        assert_eq!(
+            mbp.event_time,
+            Some(OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(2000))
+        );
+        assert_eq!(
+            mbp.recv_time,
+            Some(OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(2050))
+        );
         assert_eq!(mbp.sequence, Some(2));
     }
 }

@@ -275,21 +275,22 @@ fn do_comparison(
 
     // Sanity check: verify (ts_event, sequence) alignment
     if let Some(mbo) = mbo_record
-        && (mbo.hd.ts_event != mbp_record.hd.ts_event || mbo.sequence != mbp_record.sequence) {
-            val_stats.ts_seq_misalignments += 1;
-            if val_stats.ts_seq_misalignments <= 5 {
-                eprintln!(
-                    "  MISALIGNMENT at snapshot #{}: MBO(ts={}, seq={}, action={}) vs MBP(ts={}, seq={}, action='{}')",
-                    val_stats.snapshots_checked,
-                    mbo.hd.ts_event,
-                    mbo.sequence,
-                    mbo.action as u8 as char,
-                    mbp_record.hd.ts_event,
-                    mbp_record.sequence,
-                    mbp_action,
-                );
-            }
+        && (mbo.hd.ts_event != mbp_record.hd.ts_event || mbo.sequence != mbp_record.sequence)
+    {
+        val_stats.ts_seq_misalignments += 1;
+        if val_stats.ts_seq_misalignments <= 5 {
+            eprintln!(
+                "  MISALIGNMENT at snapshot #{}: MBO(ts={}, seq={}, action={}) vs MBP(ts={}, seq={}, action='{}')",
+                val_stats.snapshots_checked,
+                mbo.hd.ts_event,
+                mbo.sequence,
+                mbo.action as u8 as char,
+                mbp_record.hd.ts_event,
+                mbp_record.sequence,
+                mbp_action,
+            );
         }
+    }
 
     let mbp = MarketByPrice::from_top_n(processor.order_book(), 10);
     let top_bids = mbp.top_n_bids(10);

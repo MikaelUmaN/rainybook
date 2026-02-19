@@ -242,15 +242,14 @@ impl OrderBook {
         // Capture level info and clean up empty levels
         if let Some(order) = removed {
             let levels = self.levels_mut(order.side);
-            let (remaining_qty, remaining_count, level_removed) =
-                match levels.get(&price) {
-                    Some(level) if level.is_empty() => {
-                        levels.remove(&price);
-                        (0, 0, true)
-                    }
-                    Some(level) => (level.total_qty(), level.order_count(), false),
-                    None => (0, 0, true),
-                };
+            let (remaining_qty, remaining_count, level_removed) = match levels.get(&price) {
+                Some(level) if level.is_empty() => {
+                    levels.remove(&price);
+                    (0, 0, true)
+                }
+                Some(level) => (level.total_qty(), level.order_count(), false),
+                None => (0, 0, true),
+            };
 
             Some(RemoveOrderInfo {
                 order,

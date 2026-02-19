@@ -1,3 +1,5 @@
+use time::OffsetDateTime;
+
 use crate::{Order, Side};
 
 /// Emitted when an order is added to the book.
@@ -11,10 +13,10 @@ pub struct OrderAddedEvent {
     pub level_order_count: usize,
     /// True if this order created a new price level.
     pub new_level: bool,
-    /// Exchange event timestamp in nanoseconds since UNIX epoch.
-    pub event_time: u64,
-    /// Server receive timestamp in nanoseconds since UNIX epoch.
-    pub recv_time: u64,
+    /// Exchange event timestamp.
+    pub event_time: OffsetDateTime,
+    /// Server receive timestamp.
+    pub recv_time: OffsetDateTime,
     /// Venue-assigned sequence number.
     pub sequence: u32,
 }
@@ -30,10 +32,10 @@ pub struct OrderCancelledEvent {
     pub remaining_level_count: usize,
     /// True if the price level was removed (no more orders at this price).
     pub level_removed: bool,
-    /// Exchange event timestamp in nanoseconds since UNIX epoch.
-    pub event_time: u64,
-    /// Server receive timestamp in nanoseconds since UNIX epoch.
-    pub recv_time: u64,
+    /// Exchange event timestamp.
+    pub event_time: OffsetDateTime,
+    /// Server receive timestamp.
+    pub recv_time: OffsetDateTime,
     /// Venue-assigned sequence number.
     pub sequence: u32,
 }
@@ -51,10 +53,10 @@ pub struct OrderModifiedEvent {
     pub level_qty: u64,
     /// Number of orders at the new price level after modification.
     pub level_order_count: usize,
-    /// Exchange event timestamp in nanoseconds since UNIX epoch.
-    pub event_time: u64,
-    /// Server receive timestamp in nanoseconds since UNIX epoch.
-    pub recv_time: u64,
+    /// Exchange event timestamp.
+    pub event_time: OffsetDateTime,
+    /// Server receive timestamp.
+    pub recv_time: OffsetDateTime,
     /// Venue-assigned sequence number.
     pub sequence: u32,
 }
@@ -74,10 +76,10 @@ pub struct TradeEvent {
     pub side: Side,
     /// True if this was the aggressor (incoming order), false if resting (passive fill).
     pub aggressor: bool,
-    /// Exchange event timestamp in nanoseconds since UNIX epoch.
-    pub event_time: u64,
-    /// Server receive timestamp in nanoseconds since UNIX epoch.
-    pub recv_time: u64,
+    /// Exchange event timestamp.
+    pub event_time: OffsetDateTime,
+    /// Server receive timestamp.
+    pub recv_time: OffsetDateTime,
     /// Venue-assigned sequence number.
     pub sequence: u32,
 }

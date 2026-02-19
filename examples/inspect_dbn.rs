@@ -14,8 +14,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use dbn::{
-    BboMsg, CbboMsg, Cmbp1Msg, ImbalanceMsg, InstrumentDefMsg, MboMsg, Mbp1Msg, Mbp10Msg,
-    OhlcvMsg, Schema, StatMsg, StatusMsg, TradeMsg,
+    BboMsg, CbboMsg, Cmbp1Msg, ImbalanceMsg, InstrumentDefMsg, MboMsg, Mbp1Msg, Mbp10Msg, OhlcvMsg,
+    Schema, StatMsg, StatusMsg, TradeMsg,
     decode::{DbnMetadata, DecodeRecord, DynReader, dbn::Decoder},
 };
 
@@ -144,8 +144,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // --- Determine schema ---
     let schema = match &cli.schema {
         Some(s) => s.parse::<Schema>()?,
-        None => file_schema
-            .ok_or("No schema in file metadata; please specify --schema")?,
+        None => file_schema.ok_or("No schema in file metadata; please specify --schema")?,
     };
 
     // --- Stream first N records ---
