@@ -2,6 +2,7 @@ pub mod generators;
 pub mod orderbook;
 
 pub use orderbook::{
-    Action, MarketByOrderMessage, MarketByPrice, MboProcessError, MboProcessor, Order, OrderBook,
-    OrderBookError, OrderLevelSummary, Side, Trade,
+    Action, AddOrderInfo, MarketByOrderMessage, MarketByPrice, MboObserver, MboProcessError,
+    MboProcessor, Order, OrderAddedEvent, OrderBook, OrderBookError, OrderCancelledEvent,
+    OrderLevelSummary, OrderModifiedEvent, RemoveOrderInfo, Side, TradeCollector, TradeEvent,
 };

@@ -1,46 +1,36 @@
-use thiserror::Error;
+use crate::orderbook::events::TradeEvent;
+use crate::orderbook::mbo::MboObserver;
 
-use crate::{MarketByOrderMessage, Side};
-
-/// Represents a trade event in the order book.
-/// Either from an aggressing trade or from a passive fill.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Trade {
-    pub event_time: u64,
-    pub recv_time: u64,
-    pub price: i64,
-    pub size: u32,
-    pub side: Side,
-    pub aggressor: bool,
-    pub sequence: u32,
+/// Observer that collects trades from Trade and Fill actions.
+///
+/// Both aggressive (Trade) and passive (Fill) sides are collected into
+/// a single `Vec<TradeEvent>`. The `aggressor` field on each event
+/// distinguishes them.
+///
+/// Use with `MboProcessor::with_observer(TradeCollector::new())`, then
+/// retrieve results via `processor.observer().trades()` or
+/// `processor.into_observer().into_trades()`.
+#[derive(Debug, Default)]
+pub struct TradeCollector {
+    trades: Vec<TradeEvent>,
 }
 
-#[derive(Debug, Error, Clone)]
-pub enum TradeProcessError {
-    #[error("Action {0} is not supported.")]
-    UnknownAction(i8),
+impl TradeCollector {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    #[error("Could not convert {0} to a bid/ask.")]
-    SideConversionError(i8),
+    pub fn trades(&self) -> &[TradeEvent] {
+        &self.trades
+    }
 
-    #[error("Record type from flag bits {0} is not supported. Only MBO records are supported.")]
-    UnsupportedRecordType(u8),
+    pub fn into_trades(self) -> Vec<TradeEvent> {
+        self.trades
+    }
 }
 
-impl TryFrom<&MarketByOrderMessage> for Trade {
-    type Error = TradeProcessError;
-
-    fn try_from(msg: &MarketByOrderMessage) -> Result<Self, Self::Error> {
-        // TODO: Determine aggressor side based on action (Trade vs Fill)
-        // For now, assume all trades are aggressor=true
-        Ok(Trade {
-            event_time: msg.event_time,
-            recv_time: msg.recv_time,
-            price: msg.price,
-            size: msg.size,
-            side: msg.side,
-            aggressor: true,
-            sequence: msg.sequence,
-        })
+impl MboObserver for TradeCollector {
+    fn on_trade(&mut self, event: &TradeEvent) {
+        self.trades.push(*event);
     }
 }

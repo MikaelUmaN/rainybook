@@ -5,6 +5,32 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 use tracing::warn;
 
+/// Information returned by `OrderBook::add_order`.
+#[derive(Debug, Clone, Copy)]
+pub struct AddOrderInfo {
+    /// The order that was added.
+    pub order: Order,
+    /// Total quantity at this price level after the add.
+    pub level_qty: u64,
+    /// Number of orders at this price level after the add.
+    pub level_order_count: usize,
+    /// True if this order created a new price level.
+    pub new_level: bool,
+}
+
+/// Information returned by `OrderBook::remove_order`.
+#[derive(Debug, Clone, Copy)]
+pub struct RemoveOrderInfo {
+    /// The order that was removed.
+    pub order: Order,
+    /// Quantity remaining at this price level after removal (0 if level removed).
+    pub remaining_level_qty: u64,
+    /// Orders remaining at this price level after removal (0 if level removed).
+    pub remaining_level_count: usize,
+    /// True if the price level was removed (no more orders at this price).
+    pub level_removed: bool,
+}
+
 #[derive(Debug, Error, Clone)]
 pub enum OrderBookError {
     #[error("Order {0} not found at price level")]
@@ -133,7 +159,9 @@ impl OrderBook {
 
     /// Adds an order to the orderbook. If the order id already exists, the old order is replaced,
     /// possibly with changed price and size.
-    pub fn add_order(&mut self, order: Order) {
+    ///
+    /// Returns information about the added order and its price level.
+    pub fn add_order(&mut self, order: Order) -> AddOrderInfo {
         // If order exists, remove it from old location first (handles price changes)
         if let Some(&old_price) = self.order_index.get(&order.order_id) {
             // Look up the old order to get its side
@@ -166,8 +194,10 @@ impl OrderBook {
         }
 
         let price = order.price;
+        let side = order.side;
         let order_id = order.order_id;
-        let levels = self.levels_mut(order.side);
+        let order_copy = order;
+        let levels = self.levels_mut(side);
 
         levels
             .entry(price)
@@ -175,11 +205,24 @@ impl OrderBook {
             .add_order(order);
 
         self.order_index.insert(order_id, price);
+
+        // Read level info after insertion (mutable borrow has ended)
+        let levels = match side {
+            Side::Bid => &self.bids,
+            Side::Ask => &self.asks,
+        };
+        let level = levels.get(&price).expect("level must exist after add");
+        AddOrderInfo {
+            order: order_copy,
+            level_qty: level.total_qty(),
+            level_order_count: level.order_count(),
+            new_level: level.order_count() == 1,
+        }
     }
 
     /// Removes an order from the order book. If it is not found, no operation is performed.
-    /// Returns the removed Order if found, None otherwise.
-    pub fn remove_order(&mut self, order_id: u64) -> Option<Order> {
+    /// Returns information about the removed order and the remaining level state.
+    pub fn remove_order(&mut self, order_id: u64) -> Option<RemoveOrderInfo> {
         let Some(price) = self.order_index.remove(&order_id) else {
             warn!("Order {} not found in index, ignoring removal", order_id);
             return None;
@@ -196,17 +239,29 @@ impl OrderBook {
                     .and_then(|level| level.remove_order(order_id))
             });
 
-        // Clean up empty levels
-        if let Some(ref order) = removed {
+        // Capture level info and clean up empty levels
+        if let Some(order) = removed {
             let levels = self.levels_mut(order.side);
-            if levels.get(&price).is_some_and(|l| l.is_empty()) {
-                levels.remove(&price);
-            }
+            let (remaining_qty, remaining_count, level_removed) =
+                match levels.get(&price) {
+                    Some(level) if level.is_empty() => {
+                        levels.remove(&price);
+                        (0, 0, true)
+                    }
+                    Some(level) => (level.total_qty(), level.order_count(), false),
+                    None => (0, 0, true),
+                };
+
+            Some(RemoveOrderInfo {
+                order,
+                remaining_level_qty: remaining_qty,
+                remaining_level_count: remaining_count,
+                level_removed,
+            })
         } else {
             warn!("Price level {} not found for order {}", price, order_id);
+            None
         }
-
-        removed
     }
 
     /// Gets an order by id.
