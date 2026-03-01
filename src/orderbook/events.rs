@@ -53,6 +53,9 @@ pub struct OrderModifiedEvent {
     pub level_qty: u64,
     /// Number of orders at the new price level after modification.
     pub level_order_count: usize,
+    /// True if the order kept its queue position (size decreased at same price).
+    /// False if queue position was reset (price changed or size increased).
+    pub retained_queue_position: bool,
     /// Exchange event timestamp.
     pub event_time: OffsetDateTime,
     /// Server receive timestamp.

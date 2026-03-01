@@ -18,30 +18,35 @@ fn main() {
         side: Side::Bid,
         price: 10050,
         size: 100,
+        sequence: 1,
     }); // Order 1: 100 units @ 100.50
     book.add_order(Order {
         order_id: 2,
         side: Side::Bid,
         price: 10050,
         size: 250,
+        sequence: 2,
     }); // Order 2: 250 units @ 100.50
     book.add_order(Order {
         order_id: 3,
         side: Side::Bid,
         price: 10045,
         size: 500,
+        sequence: 3,
     }); // Order 3: 500 units @ 100.45
     book.add_order(Order {
         order_id: 4,
         side: Side::Bid,
         price: 10040,
         size: 300,
+        sequence: 4,
     }); // Order 4: 300 units @ 100.40
     book.add_order(Order {
         order_id: 5,
         side: Side::Bid,
         price: 10040,
         size: 150,
+        sequence: 5,
     }); // Order 5: 150 units @ 100.40
 
     // Add some ask orders at various price levels
@@ -50,24 +55,28 @@ fn main() {
         side: Side::Ask,
         price: 10055,
         size: 200,
+        sequence: 6,
     }); // Order 6: 200 units @ 100.55
     book.add_order(Order {
         order_id: 7,
         side: Side::Ask,
         price: 10055,
         size: 100,
+        sequence: 7,
     }); // Order 7: 100 units @ 100.55
     book.add_order(Order {
         order_id: 8,
         side: Side::Ask,
         price: 10060,
         size: 400,
+        sequence: 8,
     }); // Order 8: 400 units @ 100.60
     book.add_order(Order {
         order_id: 9,
         side: Side::Ask,
         price: 10065,
         size: 600,
+        sequence: 9,
     }); // Order 9: 600 units @ 100.65
 
     // Get best bid and ask
@@ -104,7 +113,8 @@ fn main() {
 
     // Modify an order
     println!("Modifying order 3 quantity to 750...");
-    book.modify_order(3, 750).expect("modify should succeed");
+    book.update_order_size(3, 750)
+        .expect("modify should succeed");
 
     // Remove an order
     println!("Removing order 7...");

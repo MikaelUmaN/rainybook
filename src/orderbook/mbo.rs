@@ -207,6 +207,7 @@ impl From<&MarketByOrderMessage> for Order {
             side: msg.side,
             price: msg.price,
             size: msg.size.into(),
+            sequence: msg.sequence,
         }
     }
 }
@@ -383,19 +384,19 @@ impl<O: MboObserver> MboProcessor<O> {
                     "Modifying order ID {} to price {}, size {}",
                     message.order_id, message.price, message.size
                 );
-                // Modify can change price, size, or both. Remove and re-add to handle all cases.
-                let old = self.order_book.remove_order(message.order_id);
-                let info = self.order_book.add_order(Order::from(message));
-                self.observer.on_order_modified(&OrderModifiedEvent {
-                    order: info.order,
-                    old_price: old.map_or(message.price, |o| o.order.price),
-                    old_size: old.map_or(0, |o| o.order.size),
-                    level_qty: info.level_qty,
-                    level_order_count: info.level_order_count,
-                    event_time: message.event_time,
-                    recv_time: message.recv_time,
-                    sequence: message.sequence,
-                });
+                if let Some(info) = self.order_book.modify_order(Order::from(message)) {
+                    self.observer.on_order_modified(&OrderModifiedEvent {
+                        order: info.order,
+                        old_price: info.old_price,
+                        old_size: info.old_size,
+                        level_qty: info.level_qty,
+                        level_order_count: info.level_order_count,
+                        retained_queue_position: info.retained_queue_position,
+                        event_time: message.event_time,
+                        recv_time: message.recv_time,
+                        sequence: message.sequence,
+                    });
+                }
             }
             Action::Fill | Action::Trade => {
                 // Fill and Trade do NOT modify the order book.

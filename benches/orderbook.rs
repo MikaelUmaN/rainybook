@@ -113,7 +113,7 @@ fn bench_top_n_bids(c: &mut Criterion) {
     });
 }
 
-/// Benchmark modifying an order in a populated book.
+/// Benchmark modifying an order's size in a populated book.
 fn bench_modify_order(c: &mut Criterion) {
     c.bench_function("orderbook/modify_order", |b| {
         let mut generator = OrderGenerator::default_seeded(42);
@@ -129,7 +129,7 @@ fn bench_modify_order(c: &mut Criterion) {
                 (book, order_to_modify)
             },
             |(mut book, order_id)| {
-                let _ = book.modify_order(black_box(order_id), black_box(999));
+                let _ = book.update_order_size(black_box(order_id), black_box(999));
                 black_box(book)
             },
             BatchSize::LargeInput,

@@ -373,9 +373,9 @@ fn main() {
                     // Generate new size
                     let new_size = rng.random_range(1..=100);
 
-                    let result = book.modify_order(order_id, new_size);
+                    let result = book.update_order_size(order_id, new_size);
 
-                    if result.is_err() {
+                    if result.is_none() {
                         // Order not found - fall back to add
                         let order = generator.next_order();
                         book.add_order(order);
