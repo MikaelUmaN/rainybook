@@ -3,7 +3,7 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
-use rainybook::orderbook::OrderBook;
+use rainybook::{Order, OrderBook};
 
 mod data;
 
@@ -125,11 +125,15 @@ fn bench_modify_order(c: &mut Criterion) {
                 for order in &orders {
                     book.add_order(*order);
                 }
-                let order_to_modify = orders[500].order_id;
+                let order_to_modify = orders[500];
                 (book, order_to_modify)
             },
-            |(mut book, order_id)| {
-                let _ = book.update_order_size(black_box(order_id), black_box(999));
+            |(mut book, order)| {
+                let modified = Order {
+                    size: black_box(999),
+                    ..order
+                };
+                let _ = book.modify_order(black_box(modified));
                 black_box(book)
             },
             BatchSize::LargeInput,

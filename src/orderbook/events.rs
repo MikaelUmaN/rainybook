@@ -1,6 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::{Order, Side};
+use crate::orderbook::{Order, Side};
 
 /// Emitted when an order is added to the book.
 #[derive(Debug, Clone, Copy)]

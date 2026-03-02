@@ -6,7 +6,6 @@ pub mod tradestream;
 
 pub use book::{
     AddOrderInfo, ModifyOrderInfo, Order, OrderBook, OrderBookError, RemoveOrderInfo, Side,
-    UpdateSizeInfo,
 };
 pub use events::{OrderAddedEvent, OrderCancelledEvent, OrderModifiedEvent, TradeEvent};
 pub use mbo::{Action, MarketByOrderMessage, MboObserver, MboProcessError, MboProcessor};

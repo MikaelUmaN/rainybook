@@ -66,9 +66,6 @@ pub struct ModifyOrderInfo {
 pub enum OrderBookError {
     #[error("Order {0} not found at price level")]
     OrderNotFound(u64),
-
-    #[error("Attempted to fill {0} units, but only {1} available")]
-    FillQuantityExceedsOrderSize(u64, u64),
 }
 
 #[repr(i8)]
@@ -346,7 +343,7 @@ impl OrderBook {
 
     /// Updates an order's size in place, preserving its queue position.
     /// Returns `None` if the order is not found.
-    pub fn update_order_size(&mut self, order_id: u64, new_size: u64) -> Option<UpdateSizeInfo> {
+    fn update_order_size(&mut self, order_id: u64, new_size: u64) -> Option<UpdateSizeInfo> {
         let &price = self.order_index.get(&order_id)?;
 
         if let Some(level) = self.bids.get_mut(&price)
@@ -412,31 +409,6 @@ impl OrderBook {
             level_order_count,
             retained_queue_position: retained,
         })
-    }
-
-    /// Fills part or all of an order. If the fill quantity equals the order size, the order
-    /// is removed. Partial fills preserve queue position.
-    pub fn fill_order(&mut self, order_id: u64, fill_quantity: u64) -> Result<(), OrderBookError> {
-        let current_size = self
-            .get_order(order_id)
-            .ok_or(OrderBookError::OrderNotFound(order_id))?
-            .size;
-
-        if current_size < fill_quantity {
-            return Err(OrderBookError::FillQuantityExceedsOrderSize(
-                fill_quantity,
-                current_size,
-            ));
-        }
-
-        let new_size = current_size - fill_quantity;
-        if new_size == 0 {
-            self.remove_order(order_id);
-        } else {
-            self.update_order_size(order_id, new_size)
-                .ok_or(OrderBookError::OrderNotFound(order_id))?;
-        }
-        Ok(())
     }
 
     pub fn best_bid(&self) -> Option<(i64, u64)> {
@@ -679,122 +651,6 @@ mod tests {
         assert_eq!(book.best_ask(), None);
     }
 
-    #[test]
-    fn test_fill_partial() {
-        let mut book = OrderBook::new();
-
-        // Add order with 100 units
-        book.add_order(order(123, Side::Bid, 10050, 100));
-        assert_eq!(book.best_bid(), Some((10050, 100)));
-
-        // Fill 40 units
-        book.fill_order(123, 40).unwrap();
-        assert_eq!(book.best_bid(), Some((10050, 60)));
-
-        // Fill another 30 units
-        book.fill_order(123, 30).unwrap();
-        // -> 30 units remain.
-        assert_eq!(book.best_bid(), Some((10050, 30)));
-    }
-
-    #[test]
-    fn test_fill_complete() {
-        let mut book = OrderBook::new();
-
-        // Add order with 100 units
-        book.add_order(order(123, Side::Bid, 10050, 100));
-        assert_eq!(book.best_bid(), Some((10050, 100)));
-
-        // Fill entire order
-        book.fill_order(123, 100).unwrap();
-
-        // Order and price level should be gone
-        assert_eq!(book.best_bid(), None);
-    }
-
-    #[test]
-    fn test_fill_complete_with_other_orders() {
-        let mut book = OrderBook::new();
-
-        // Add two orders at same price
-        book.add_order(order(123, Side::Bid, 10050, 100));
-        book.add_order(order(124, Side::Bid, 10050, 50));
-        assert_eq!(book.best_bid(), Some((10050, 150)));
-
-        // Fill first order completely
-        book.fill_order(123, 100).unwrap();
-
-        // Second order should remain, price level still exists
-        assert_eq!(book.best_bid(), Some((10050, 50)));
-    }
-
-    #[test]
-    fn test_fill_exceeds_quantity() {
-        let mut book = OrderBook::new();
-
-        // Add order with 100 units
-        book.add_order(order(123, Side::Bid, 10050, 100));
-
-        // Try to fill 150 units (more than available)
-        let result = book.fill_order(123, 150);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            OrderBookError::FillQuantityExceedsOrderSize(150, 100)
-        ));
-
-        // Original order should be unchanged
-        assert_eq!(book.best_bid(), Some((10050, 100)));
-    }
-
-    #[test]
-    fn test_fill_nonexistent_order() {
-        let mut book = OrderBook::new();
-
-        // Try to fill order that doesn't exist
-        let result = book.fill_order(999, 50);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            OrderBookError::OrderNotFound(999)
-        ));
-    }
-
-    #[test]
-    fn test_fill_multiple_sequential() {
-        let mut book = OrderBook::new();
-
-        // Add order with 100 units
-        book.add_order(order(125, Side::Ask, 10052, 100));
-        assert_eq!(book.best_ask(), Some((10052, 100)));
-
-        // Fill in multiple steps
-        book.fill_order(125, 25).unwrap();
-        assert_eq!(book.best_ask(), Some((10052, 75)));
-
-        book.fill_order(125, 25).unwrap();
-        assert_eq!(book.best_ask(), Some((10052, 50)));
-
-        book.fill_order(125, 25).unwrap();
-        assert_eq!(book.best_ask(), Some((10052, 25)));
-
-        // Final fill removes the order
-        book.fill_order(125, 25).unwrap();
-        assert_eq!(book.best_ask(), None);
-    }
-
-    #[test]
-    fn test_fill_zero_quantity() {
-        let mut book = OrderBook::new();
-
-        // Add order
-        book.add_order(order(123, Side::Bid, 10050, 100));
-
-        // Fill zero units (edge case - should succeed but do nothing)
-        book.fill_order(123, 0).unwrap();
-        assert_eq!(book.best_bid(), Some((10050, 100)));
-    }
-
     // --- Queue position tests ---
 
     #[test]
@@ -868,22 +724,6 @@ mod tests {
         assert_eq!(level.queue_position(1), Some(0));
         assert_eq!(level.queue_position(3), Some(1)); // moved forward
         assert_eq!(level.queue_position(2), Some(2)); // now at back
-    }
-
-    #[test]
-    fn test_fill_partial_retains_queue_position() {
-        let mut book = OrderBook::new();
-
-        book.add_order(order(1, Side::Bid, 10050, 100));
-        book.add_order(order(2, Side::Bid, 10050, 50));
-        book.add_order(order(3, Side::Bid, 10050, 75));
-
-        // Partial fill on order 2 should retain its queue position
-        book.fill_order(2, 20).unwrap();
-
-        let level = book.bids.get(&10050).unwrap();
-        assert_eq!(level.queue_position(2), Some(1)); // retained
-        assert_eq!(level.get_order(2).unwrap().size, 30); // size reduced
     }
 
     #[test]

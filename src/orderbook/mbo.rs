@@ -10,7 +10,7 @@ use tracing::debug;
 use crate::orderbook::events::{
     OrderAddedEvent, OrderCancelledEvent, OrderModifiedEvent, TradeEvent,
 };
-use crate::{Order, OrderBook, OrderBookError, Side};
+use crate::orderbook::{Order, OrderBook, OrderBookError, Side};
 
 /// Observer trait for reacting to MBO message processing events.
 ///

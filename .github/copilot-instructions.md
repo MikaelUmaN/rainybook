@@ -146,51 +146,65 @@ let stats = data.iter().fold(Stats::new(), |stats, item| {
 - Organize by feature, not by technical layer when possible
 
 ### 10. Import Statement Guidelines - CRITICAL
-**Always import types at the top of the file; avoid inline `::` paths in type signatures.**
 
-#### ✅ PREFERRED - Import at top:
+Import paths follow three context-specific rules. Apply the correct rule based on where the file lives.
+
+#### Rule 1 — Library source files (`src/**/*.rs`)
+
+Stop at the `orderbook` module re-export layer (`orderbook/mod.rs`). For types that are *not* re-exported from `mod.rs` (e.g. `OrderLevel`), go one level deeper to the defining module.
+
 ```rust
-use crate::config::DownloadTask;
-use std::collections::HashMap;
-use chrono::{DateTime, Utc};
+// ✅ CORRECT — stop at orderbook module re-export layer
+use crate::orderbook::{Order, OrderBook, MboObserver, MboProcessor, TradeEvent};
+use crate::orderbook::book::OrderLevel;  // not re-exported, so direct module path is fine
 
-pub struct Report {
-    pub task: DownloadTask,  // Clean and readable
-    pub data: HashMap<String, f64>,
-    pub timestamp: DateTime<Utc>,
+// ❌ WRONG — super:: for sibling references (fragile, unclear)
+use super::book::OrderBook;
+use super::mbo::MboProcessor;
+
+// ❌ WRONG — crate:: root re-exports inside library code
+use crate::{Order, OrderBook};
+```
+
+`super::` is only appropriate for a child module accessing its direct parent. Never use `super::` for sibling-to-sibling references.
+
+#### Rule 2 — Test blocks within library source files
+
+`#[cfg(test)] mod tests` uses `use super::*;` to import the module under test. All `use` statements must be at the top of the `mod tests` block — never inside individual `#[test]` functions.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;  // import module under test
+    use time::{Duration, OffsetDateTime};
+    use crate::orderbook::mbo::{Action, MarketByOrderMessage, MboProcessor};
+    // All use statements here at top — NOT inside individual test functions
 }
 ```
 
-#### ❌ AVOID - Inline paths in type signatures:
+#### Rule 3 — Binaries, examples, benchmarks
+
+These are separate crate contexts. Use the library's public crate name and root re-exports for all public types.
+
 ```rust
-pub struct Report {
-    pub task: crate::config::DownloadTask,  // Verbose, not idiomatic
-    pub data: std::collections::HashMap<String, f64>,
-}
+// ✅ CORRECT — crate name + root re-exports for public types
+use rainybook::{Order, OrderBook, Side, MboProcessor};
+
+// ✅ CORRECT — submodule path only when NOT re-exported at root
+use rainybook::generators::OrderGenerator;
+
+// ❌ WRONG — accessing internal module paths
+use rainybook::orderbook::book::Order;
+use rainybook::orderbook::Order;
 ```
 
-#### When to use fully qualified paths (`::` syntax):
-1. **Disambiguation** when names conflict:
-```rust
-use std::io::Result as IoResult;
-use std::fmt::Result as FmtResult;
+#### Summary
 
-// Or use fully qualified for clarity:
-fn read() -> std::io::Result<String> { ... }
-```
-
-2. **Very rare usage** (only used once in obscure places):
-```rust
-fn internal_debug() {
-    std::mem::size_of::<MyType>();  // Only used here, no import needed
-}
-```
-
-3. **Constructor functions** to show intent:
-```rust
-let map = HashMap::new();  // Clear it's HashMap's constructor
-let vec = Vec::new();
-```
+| Context | Correct pattern | Wrong patterns |
+|---|---|---|
+| Library `src/**/*.rs` | `crate::orderbook::Type` | `super::sibling::Type`, `crate::Type` (root) |
+| Test `mod tests` | `use super::*;` at top of block | `use` inside individual test functions |
+| Bins / examples / benches | `rainybook::Type` | `rainybook::orderbook::Type` |
 
 #### Import grouping and organization:
 ```rust
@@ -198,18 +212,14 @@ let vec = Vec::new();
 use std::{fs, io};
 
 // 2. External crate imports
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use tokio::task;
+use time::{Duration, OffsetDateTime};
+use thiserror::Error;
 
-// 3. Internal crate imports
-use crate::config::DownloadTask;
-use crate::report::Report;
+// 3. Internal crate imports (use correct rule per context above)
+use crate::orderbook::{Order, OrderBook};
 ```
 
-**Key principle:** If a type appears in a function signature, struct field, or is used multiple times, import it at the top. Only use inline `::` paths for disambiguation or one-off internal utilities.
-
-**Key principle:** If a type appears in a function signature, struct field, or is used multiple times, import it at the top. Only use inline `::` paths for disambiguation or one-off internal utilities.
+**Key principle:** Always import types at the top of the file. Never use inline `::` paths in type signatures, struct fields, or function signatures.
 
 ### 11. Output and Logging
 - **Binaries in `src/`** must use `tracing` and `tracing_subscriber` for all diagnostic output (info, debug, warnings, errors). Do not use `println!` or `eprintln!` for logging.

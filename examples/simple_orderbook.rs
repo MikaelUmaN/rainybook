@@ -107,14 +107,24 @@ fn main() {
     // Demonstrate some order operations
     println!("\n=== Order Operations ===\n");
 
-    // Partially fill an order
+    // Partially fill order 1: reduce size by 50 units (size decrease retains queue position)
     println!("Filling 50 units from order 1...");
-    book.fill_order(1, 50).expect("fill should succeed");
+    if let Some(existing) = book.get_order(1).copied() {
+        book.modify_order(Order {
+            size: existing.size - 50,
+            ..existing
+        });
+    }
 
-    // Modify an order
+    // Modify order 3 quantity (size increase uses a new sequence, losing queue position)
     println!("Modifying order 3 quantity to 750...");
-    book.update_order_size(3, 750)
-        .expect("modify should succeed");
+    if let Some(existing) = book.get_order(3).copied() {
+        book.modify_order(Order {
+            size: 750,
+            sequence: 10,
+            ..existing
+        });
+    }
 
     // Remove an order
     println!("Removing order 7...");

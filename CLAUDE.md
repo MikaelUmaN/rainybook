@@ -6,6 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RainyBook is a high-performance order book library written in pure Rust. It provides Market-By-Order (MBO) and Market-By-Price (MBP) implementations for processing and maintaining order book state from market data feeds, with a focus on performance and functional programming patterns.
 
+## After Every Refactoring or Code Edit
+
+**Always run `auto-fix.sh` after any code changes** to ensure formatting, lints, and all build targets (including benchmarks and examples) are clean:
+
+```bash
+./auto-fix.sh
+```
+
+This runs `cargo fmt`, `cargo clippy --fix`, and `cargo clippy --all-targets --all-features -- -D warnings`. It catches issues in benches, examples, and binaries that `cargo test` alone does not compile.
+
 ## Build and Test Commands
 
 ```bash

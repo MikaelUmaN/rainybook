@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
-use super::book::{OrderBook, OrderLevel};
+use crate::orderbook::book::OrderLevel;
+use crate::orderbook::{MboObserver, MboProcessor, OrderBook};
 
 /// An order level summary gives aggregate information about a price level.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,10 +85,7 @@ impl MarketByPrice {
     /// Create an MBP-N snapshot with timestamp metadata from the processor.
     /// The snapshot contains at most `n` levels per side, along with the
     /// event_time, recv_time, and sequence from the last processed message.
-    pub fn from_top_n_with_metadata(
-        processor: &crate::orderbook::mbo::MboProcessor,
-        n: usize,
-    ) -> Self {
+    pub fn from_top_n_with_metadata<O: MboObserver>(processor: &MboProcessor<O>, n: usize) -> Self {
         let mut mbp = Self::from_top_n(processor.order_book(), n);
         let (event_time, recv_time, _) = processor.last_timestamps();
         mbp.event_time = Some(event_time);
@@ -99,7 +97,7 @@ impl MarketByPrice {
     /// Create a full MBP snapshot with timestamp metadata from the processor.
     /// The snapshot contains all price levels, along with the event_time,
     /// recv_time, and sequence from the last processed message.
-    pub fn from_book_with_metadata(processor: &crate::orderbook::mbo::MboProcessor) -> Self {
+    pub fn from_book_with_metadata<O: MboObserver>(processor: &MboProcessor<O>) -> Self {
         let mut mbp = Self::from(processor.order_book());
         let (event_time, recv_time, _) = processor.last_timestamps();
         mbp.event_time = Some(event_time);
@@ -136,8 +134,8 @@ impl From<&OrderBook> for MarketByPrice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::orderbook::mbo::{Action, MarketByOrderMessage, MboProcessor};
     use crate::orderbook::{Order, Side};
-
     use time::{Duration, OffsetDateTime};
 
     fn ts(s: &str) -> OffsetDateTime {
@@ -259,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn test_orderbook_becomes_empty_after_fills() {
+    fn test_orderbook_becomes_empty_after_cancels_of_filled_orders() {
         let mut book = OrderBook::new();
 
         // Add orders
@@ -270,19 +268,19 @@ mod tests {
         assert_eq!(mbp_before.bids.get(&10000).unwrap().total_quantity, 100);
         assert_eq!(mbp_before.asks.get(&10100).unwrap().total_quantity, 200);
 
-        // Fully fill both orders
-        book.fill_order(1, 100).expect("Fill should succeed");
-        book.fill_order(2, 200).expect("Fill should succeed");
+        // Remove both orders (simulating full fills via cancel, as fill_order no longer exists)
+        book.remove_order(1);
+        book.remove_order(2);
 
         // Verify book is empty
         let mbp_after = MarketByPrice::from(&book);
         assert!(
             mbp_after.bids.is_empty(),
-            "Bids should be empty after full fills"
+            "Bids should be empty after orders are removed"
         );
         assert!(
             mbp_after.asks.is_empty(),
-            "Asks should be empty after full fills"
+            "Asks should be empty after orders are removed"
         );
     }
 
@@ -385,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn test_partial_fills_update_quantities() {
+    fn test_size_decrease_and_removal_update_quantities() {
         let mut book = OrderBook::new();
 
         // Add orders with multiple orders at same level
@@ -397,22 +395,25 @@ mod tests {
         assert_eq!(mbp_before.bids.get(&10000).unwrap().total_quantity, 450);
         assert_eq!(mbp_before.bids.get(&10000).unwrap().order_count, 3);
 
-        // Partially fill one order
-        book.fill_order(1, 50).unwrap();
+        // Decrease size of order 1 (100 → 50), retains queue position
+        book.modify_order(order(1, Side::Bid, 10000, 50));
 
-        let mbp_after_partial = MarketByPrice::from(&book);
+        let mbp_after_decrease = MarketByPrice::from(&book);
         assert_eq!(
-            mbp_after_partial.bids.get(&10000).unwrap().total_quantity,
+            mbp_after_decrease.bids.get(&10000).unwrap().total_quantity,
             400
         ); // 450 - 50
-        assert_eq!(mbp_after_partial.bids.get(&10000).unwrap().order_count, 3); // Still 3 orders
+        assert_eq!(mbp_after_decrease.bids.get(&10000).unwrap().order_count, 3); // Still 3 orders
 
-        // Fully fill the partially filled order
-        book.fill_order(1, 50).unwrap();
+        // Remove order 1 entirely (simulating a complete fill via cancel)
+        book.remove_order(1);
 
-        let mbp_after_full = MarketByPrice::from(&book);
-        assert_eq!(mbp_after_full.bids.get(&10000).unwrap().total_quantity, 350); // 400 - 50
-        assert_eq!(mbp_after_full.bids.get(&10000).unwrap().order_count, 2); // Now 2 orders
+        let mbp_after_remove = MarketByPrice::from(&book);
+        assert_eq!(
+            mbp_after_remove.bids.get(&10000).unwrap().total_quantity,
+            350
+        ); // 400 - 50
+        assert_eq!(mbp_after_remove.bids.get(&10000).unwrap().order_count, 2); // Now 2 orders
     }
 
     #[test]
@@ -430,8 +431,6 @@ mod tests {
 
     #[test]
     fn test_mbp_snapshot_with_metadata() {
-        use crate::orderbook::mbo::{Action, MarketByOrderMessage, MboProcessor};
-
         let mut processor = MboProcessor::new();
 
         // Create message with known timestamps
@@ -465,8 +464,6 @@ mod tests {
 
     #[test]
     fn test_mbp_metadata_tracks_latest_message() {
-        use crate::orderbook::mbo::{Action, MarketByOrderMessage, MboProcessor};
-
         let mut processor = MboProcessor::new();
 
         // Process multiple messages
@@ -512,5 +509,92 @@ mod tests {
             Some(OffsetDateTime::UNIX_EPOCH + Duration::nanoseconds(2050))
         );
         assert_eq!(mbp.sequence, Some(2));
+    }
+
+    /// End-to-end fixture: a known MBO message sequence produces the exact expected MBP snapshot.
+    ///
+    /// Covers: Add, Cancel, Modify (size decrease = retain position), Fill (no-op), Trade (no-op).
+    #[test]
+    fn test_mbo_sequence_produces_correct_mbp_snapshot() {
+        let mut processor = MboProcessor::new();
+        let mut next_seq = 1u32;
+        let t0 = OffsetDateTime::UNIX_EPOCH;
+        let recv = OffsetDateTime::UNIX_EPOCH + Duration::microseconds(50);
+
+        let mut msg =
+            |action, order_id, side, price: i64, size: u32, is_last| -> MarketByOrderMessage {
+                let m = MarketByOrderMessage {
+                    action,
+                    side,
+                    price,
+                    order_id,
+                    size,
+                    is_last,
+                    sequence: next_seq,
+                    event_time: t0,
+                    recv_time: recv,
+                    ts_in_delta: Duration::ZERO,
+                };
+                next_seq += 1;
+                m
+            };
+
+        // Build initial book: 3 bids across 2 price levels, 2 asks across 2 price levels
+        processor
+            .process_message(&msg(Action::Add, 1, Side::Bid, 1000, 50, true))
+            .unwrap();
+        processor
+            .process_message(&msg(Action::Add, 2, Side::Bid, 1000, 30, true))
+            .unwrap();
+        processor
+            .process_message(&msg(Action::Add, 3, Side::Bid, 990, 20, true))
+            .unwrap();
+        processor
+            .process_message(&msg(Action::Add, 4, Side::Ask, 1010, 40, true))
+            .unwrap();
+        processor
+            .process_message(&msg(Action::Add, 5, Side::Ask, 1020, 60, true))
+            .unwrap();
+
+        // Fill action must NOT change the book (Databento MBO semantics)
+        processor
+            .process_message(&msg(Action::Fill, 1, Side::Bid, 1000, 20, false))
+            .unwrap();
+        // Trade action must also NOT change the book
+        processor
+            .process_message(&msg(Action::Trade, 99, Side::Ask, 1010, 10, true))
+            .unwrap();
+
+        // Modify: size decrease at same price → retains queue position, reduces size
+        // Order 2: 30 → 20
+        processor
+            .process_message(&msg(Action::Modify, 2, Side::Bid, 1000, 20, true))
+            .unwrap();
+
+        // Cancel order 3 at price 990 → entire level disappears
+        processor
+            .process_message(&msg(Action::Cancel, 3, Side::Bid, 990, 0, true))
+            .unwrap();
+
+        // Assert final MBP-2 snapshot
+        let mbp = MarketByPrice::from_top_n(processor.order_book(), 2);
+        let bids = mbp.top_n_bids(2);
+        let asks = mbp.top_n_asks(2);
+
+        // Bid side: only level 1000 remains (level 990 cancelled)
+        // Orders 1 (size=50) and 2 (size=20 after modify, fill was no-op)
+        assert_eq!(bids.len(), 1);
+        assert_eq!(bids[0].price, 1000);
+        assert_eq!(bids[0].total_quantity, 70); // 50 + 20
+        assert_eq!(bids[0].order_count, 2);
+
+        // Ask side: both levels intact — trade was no-op
+        assert_eq!(asks.len(), 2);
+        assert_eq!(asks[0].price, 1010);
+        assert_eq!(asks[0].total_quantity, 40);
+        assert_eq!(asks[0].order_count, 1);
+        assert_eq!(asks[1].price, 1020);
+        assert_eq!(asks[1].total_quantity, 60);
+        assert_eq!(asks[1].order_count, 1);
     }
 }

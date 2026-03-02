@@ -14,7 +14,7 @@ use std::time::Instant;
 use tracing::{error, info};
 
 use rainybook::generators::OrderGenerator;
-use rainybook::orderbook::{Order, OrderBook, Side};
+use rainybook::{Order, OrderBook, Side};
 
 #[derive(Parser, Debug)]
 #[command(name = "steady_state")]
@@ -331,21 +331,23 @@ fn main() {
                 };
 
                 if let Some(order_id) = state.random_order(side, &mut rng) {
-                    // Get current order size to determine fill quantity
-                    let order_size = book.get_order(order_id).map(|o| o.size);
-
-                    if let Some(size) = order_size {
-                        let fill_qty = if size > 1 {
-                            rng.random_range(1..=size)
+                    if let Some(existing) = book.get_order(order_id).copied() {
+                        let fill_qty = if existing.size > 1 {
+                            rng.random_range(1..=existing.size)
                         } else {
                             1
                         };
 
-                        let result = book.fill_order(order_id, fill_qty);
-
-                        // If fully filled, remove from tracking
-                        if result.is_ok() && fill_qty == size {
+                        if fill_qty == existing.size {
+                            // Full fill: remove the order
+                            book.remove_order(order_id);
                             state.remove_order(order_id, side);
+                        } else {
+                            // Partial fill: size decrease retains queue position
+                            book.modify_order(Order {
+                                size: existing.size - fill_qty,
+                                ..existing
+                            });
                         }
                     } else {
                         // Order not found - fall back to add
@@ -370,12 +372,14 @@ fn main() {
                 };
 
                 if let Some(order_id) = state.random_order(side, &mut rng) {
-                    // Generate new size
-                    let new_size = rng.random_range(1..=100);
+                    let new_size = rng.random_range(1..=100u64);
 
-                    let result = book.update_order_size(order_id, new_size);
-
-                    if result.is_none() {
+                    if let Some(existing) = book.get_order(order_id).copied() {
+                        book.modify_order(Order {
+                            size: new_size,
+                            ..existing
+                        });
+                    } else {
                         // Order not found - fall back to add
                         let order = generator.next_order();
                         book.add_order(order);

@@ -450,6 +450,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         //   each MBP-10 record corresponds to exactly one MBO record with
         //   the same action. Intermediate records (like Fill) that don't
         //   generate MBP-10 are processed but don't trigger comparison.
+        // Track the MBO record at (target_ts, target_seq) for alignment checking.
+        let mut last_mbo_at_target: Option<MboMsg> = None;
+
         if !mbo_exhausted {
             loop {
                 // Get next MBO record: from buffer or from decoder
@@ -479,6 +482,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 // Check if this MBO record is the one corresponding to the MBP-10
                 if ts == target_ts && seq == target_seq {
+                    // Capture for alignment check in do_comparison
+                    last_mbo_at_target = Some(record.clone());
+
                     if mbp_action == 'T' && !mbp_is_snapshot {
                         // Trade events can have multiple MBP-10 'T' records at
                         // the same (ts, seq), each corresponding to one MBO 'T'
@@ -512,7 +518,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         do_comparison(
             &processor,
             &mbp_record,
-            None,
+            last_mbo_at_target.as_ref(),
             &mbo_stats,
             &mut val_stats,
             &cli,
