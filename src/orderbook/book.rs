@@ -914,9 +914,7 @@ mod tests {
         book.add_order(order(3, Side::Bid, 10050, 75));
 
         // Size decrease at same price → retains queue position
-        let info = book
-            .modify_order(order(2, Side::Bid, 10050, 30))
-            .unwrap();
+        let info = book.modify_order(order(2, Side::Bid, 10050, 30)).unwrap();
         assert!(info.retained_queue_position);
         assert_eq!(info.old_price, 10050);
         assert_eq!(info.old_size, 50);
@@ -1004,9 +1002,7 @@ mod tests {
         book.add_order(order(2, Side::Bid, 10050, 50));
 
         // Same price, same size → retains (new_size <= old_size is true when equal)
-        let info = book
-            .modify_order(order(2, Side::Bid, 10050, 50))
-            .unwrap();
+        let info = book.modify_order(order(2, Side::Bid, 10050, 50)).unwrap();
         assert!(info.retained_queue_position);
         assert_eq!(info.old_size, 50);
         assert_eq!(info.order.size, 50);
