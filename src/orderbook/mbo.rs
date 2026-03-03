@@ -743,7 +743,6 @@ mod tests {
         assert_eq!(obs.captured_recv_time, expected_recv_time);
     }
 
-
     #[test]
     fn test_tuple_observer_both_called() {
         let obs_a = CountingObserver::default();
