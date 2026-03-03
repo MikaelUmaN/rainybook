@@ -106,6 +106,7 @@ where
             side,
             price,
             size,
+            sequence: order_id as u32,
         }
     }
 

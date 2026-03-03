@@ -18,30 +18,35 @@ fn main() {
         side: Side::Bid,
         price: 10050,
         size: 100,
+        sequence: 1,
     }); // Order 1: 100 units @ 100.50
     book.add_order(Order {
         order_id: 2,
         side: Side::Bid,
         price: 10050,
         size: 250,
+        sequence: 2,
     }); // Order 2: 250 units @ 100.50
     book.add_order(Order {
         order_id: 3,
         side: Side::Bid,
         price: 10045,
         size: 500,
+        sequence: 3,
     }); // Order 3: 500 units @ 100.45
     book.add_order(Order {
         order_id: 4,
         side: Side::Bid,
         price: 10040,
         size: 300,
+        sequence: 4,
     }); // Order 4: 300 units @ 100.40
     book.add_order(Order {
         order_id: 5,
         side: Side::Bid,
         price: 10040,
         size: 150,
+        sequence: 5,
     }); // Order 5: 150 units @ 100.40
 
     // Add some ask orders at various price levels
@@ -50,24 +55,28 @@ fn main() {
         side: Side::Ask,
         price: 10055,
         size: 200,
+        sequence: 6,
     }); // Order 6: 200 units @ 100.55
     book.add_order(Order {
         order_id: 7,
         side: Side::Ask,
         price: 10055,
         size: 100,
+        sequence: 7,
     }); // Order 7: 100 units @ 100.55
     book.add_order(Order {
         order_id: 8,
         side: Side::Ask,
         price: 10060,
         size: 400,
+        sequence: 8,
     }); // Order 8: 400 units @ 100.60
     book.add_order(Order {
         order_id: 9,
         side: Side::Ask,
         price: 10065,
         size: 600,
+        sequence: 9,
     }); // Order 9: 600 units @ 100.65
 
     // Get best bid and ask
@@ -98,13 +107,24 @@ fn main() {
     // Demonstrate some order operations
     println!("\n=== Order Operations ===\n");
 
-    // Partially fill an order
+    // Partially fill order 1: reduce size by 50 units (size decrease retains queue position)
     println!("Filling 50 units from order 1...");
-    book.fill_order(1, 50).expect("fill should succeed");
+    if let Some(existing) = book.get_order(1).copied() {
+        book.modify_order(Order {
+            size: existing.size - 50,
+            ..existing
+        });
+    }
 
-    // Modify an order
+    // Modify order 3 quantity (size increase uses a new sequence, losing queue position)
     println!("Modifying order 3 quantity to 750...");
-    book.modify_order(3, 750).expect("modify should succeed");
+    if let Some(existing) = book.get_order(3).copied() {
+        book.modify_order(Order {
+            size: 750,
+            sequence: 10,
+            ..existing
+        });
+    }
 
     // Remove an order
     println!("Removing order 7...");
