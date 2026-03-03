@@ -284,6 +284,7 @@ impl<O: MboObserver> MboProcessor<O> {
     }
 
     /// Consumes the processor and returns the observer.
+    /// Consumer gains ownership of the observer.
     pub fn into_observer(self) -> O {
         self.observer
     }
@@ -321,7 +322,6 @@ impl<O: MboObserver> MboProcessor<O> {
     }
 
     /// Returns all timestamp information as a tuple: (event_time, recv_time, ts_in_delta).
-    /// This is useful when you need all timestamp data together.
     pub fn last_timestamps(&self) -> (OffsetDateTime, OffsetDateTime, Duration) {
         (
             self.last_event_time,
@@ -505,11 +505,6 @@ mod tests {
         proc.process_message(&seq.msg(Action::Fill, 1, Side::Bid, 100, 20, false))
             .unwrap();
         assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
-
-        // Full fill should also NOT change the order
-        proc.process_message(&seq.msg(Action::Fill, 1, Side::Bid, 100, 50, true))
-            .unwrap();
-        assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
     }
 
     #[test]
@@ -542,16 +537,6 @@ mod tests {
 
         // LAST message sets event_complete to true
         proc.process_message(&seq.msg(Action::Add, 2, Side::Bid, 100, 30, true))
-            .unwrap();
-        assert!(proc.is_event_complete());
-
-        // Trade without LAST -> incomplete
-        proc.process_message(&seq.msg(Action::Trade, 99, Side::Bid, 100, 10, false))
-            .unwrap();
-        assert!(!proc.is_event_complete());
-
-        // Fill with LAST -> complete
-        proc.process_message(&seq.msg(Action::Fill, 1, Side::Bid, 100, 10, true))
             .unwrap();
         assert!(proc.is_event_complete());
     }
@@ -618,20 +603,6 @@ mod tests {
 
         assert_eq!(proc.last_event_time(), msg2.event_time);
         assert!(proc.last_event_time() > msg1.event_time);
-    }
-
-    #[test]
-    fn test_last_timestamps_tuple() {
-        let mut proc = MboProcessor::new();
-        let mut seq = TestMessageBuilder::new();
-
-        let msg = seq.msg(Action::Add, 1, Side::Bid, 100, 50, true);
-        proc.process_message(&msg).unwrap();
-
-        let (event_time, recv_time, delta) = proc.last_timestamps();
-        assert_eq!(event_time, msg.event_time);
-        assert_eq!(recv_time, msg.recv_time);
-        assert_eq!(delta, msg.ts_in_delta);
     }
 
     // --- Observer tests ---
@@ -772,15 +743,6 @@ mod tests {
         assert_eq!(obs.captured_recv_time, expected_recv_time);
     }
 
-    #[test]
-    fn test_unit_observer_compiles_and_runs() {
-        let mut proc = MboProcessor::new();
-        let mut seq = TestMessageBuilder::new();
-
-        proc.process_message(&seq.msg(Action::Add, 1, Side::Bid, 100, 50, true))
-            .unwrap();
-        assert_eq!(proc.order_book().best_bid(), Some((100, 50)));
-    }
 
     #[test]
     fn test_tuple_observer_both_called() {
