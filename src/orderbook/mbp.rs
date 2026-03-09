@@ -25,7 +25,7 @@ impl From<&OrderLevel> for OrderLevelSummary {
 
 /// Market-By-Price view of the order book.
 /// Aggregates each price level into an `OrderLevelSummary`.
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct MarketByPrice {
     pub bids: BTreeMap<i64, OrderLevelSummary>,
     pub asks: BTreeMap<i64, OrderLevelSummary>,
@@ -80,6 +80,13 @@ impl MarketByPrice {
     /// Top-N ask levels, ordered best (lowest price) to worst.
     pub fn top_n_asks(&self, n: usize) -> Vec<OrderLevelSummary> {
         self.asks.values().take(n).copied().collect()
+    }
+
+    /// Returns best bid and ask if two-sided top of book exists, else None.
+    pub fn top_of_book(&self) -> Option<(OrderLevelSummary, OrderLevelSummary)> {
+        let best_bid = self.bids.values().next_back()?;
+        let best_ask = self.asks.values().next()?;
+        Some((*best_bid, *best_ask))
     }
 
     /// Create an MBP-N snapshot with timestamp metadata from the processor.
